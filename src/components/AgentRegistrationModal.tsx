@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Send, AlertCircle, Users, Image as ImageIcon, Trash2, MapPin } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
@@ -7,6 +7,8 @@ interface AgentRegistrationModalProps {
   onClose: () => void;
   onSubmitted: () => void;
 }
+
+const FORM_STORAGE_KEY = 'agent_registration_form_data';
 
 export default function AgentRegistrationModal({ isOpen, onClose, onSubmitted }: AgentRegistrationModalProps) {
   const [loading, setLoading] = useState(false);
@@ -31,6 +33,34 @@ export default function AgentRegistrationModal({ isOpen, onClose, onSubmitted }:
   });
   const [newService, setNewService] = useState('');
   const [newTag, setNewTag] = useState('');
+
+  // Load form data from localStorage on component mount
+  useEffect(() => {
+    const savedData = localStorage.getItem(FORM_STORAGE_KEY);
+    if (savedData) {
+      try {
+        const parsedData = JSON.parse(savedData);
+        setFormData(parsedData);
+      } catch (error) {
+        console.error('Error parsing saved form data:', error);
+        // Clear corrupted data
+        localStorage.removeItem(FORM_STORAGE_KEY);
+      }
+    }
+  }, []);
+
+  // Save form data to localStorage whenever formData changes
+  useEffect(() => {
+    // Only save if form has some data (not empty initial state)
+    const hasData = Object.values(formData).some(value => {
+      if (Array.isArray(value)) return value.length > 0;
+      return value !== '' && value !== 'USD'; // USD is default currency
+    });
+
+    if (hasData) {
+      localStorage.setItem(FORM_STORAGE_KEY, JSON.stringify(formData));
+    }
+  }, [formData]);
 
   if (!isOpen) return null;
 
@@ -121,9 +151,9 @@ export default function AgentRegistrationModal({ isOpen, onClose, onSubmitted }:
         throw new Error(insertError.message || 'Failed to submit agent registration');
       }
 
-      // Success - call callbacks and reset form
+      // Success - call callbacks and clear form
       onSubmitted();
-      resetForm();
+      clearFormData();
       onClose();
 
     } catch (error: any) {
@@ -134,8 +164,8 @@ export default function AgentRegistrationModal({ isOpen, onClose, onSubmitted }:
     }
   };
 
-  const resetForm = () => {
-    setFormData({
+  const clearFormData = () => {
+    const initialFormData = {
       profile_picture: '',
       height: '',
       weight: '',
@@ -152,16 +182,27 @@ export default function AgentRegistrationModal({ isOpen, onClose, onSubmitted }:
       social_facebook: '',
       social_telegram: '',
       tags: []
-    });
+    };
+    
+    setFormData(initialFormData);
     setNewService('');
     setNewTag('');
     setError(null);
+    
+    // Clear from localStorage
+    localStorage.removeItem(FORM_STORAGE_KEY);
   };
 
   const handleClose = () => {
     if (!loading) {
-      resetForm();
+      // Don't clear form data on close - keep it for next time
       onClose();
+    }
+  };
+
+  const handleClearForm = () => {
+    if (confirm('Are you sure you want to clear all form data? This action cannot be undone.')) {
+      clearFormData();
     }
   };
 
@@ -214,6 +255,12 @@ export default function AgentRegistrationModal({ isOpen, onClose, onSubmitted }:
     }
   };
 
+  // Check if form has any data
+  const hasFormData = Object.values(formData).some(value => {
+    if (Array.isArray(value)) return value.length > 0;
+    return value !== '' && value !== 'USD';
+  });
+
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-4xl relative overflow-hidden max-h-[90vh] overflow-y-auto">
@@ -228,15 +275,31 @@ export default function AgentRegistrationModal({ isOpen, onClose, onSubmitted }:
               <div>
                 <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Register as Agent</h2>
                 <p className="text-gray-600 dark:text-gray-400">Submit your agent profile for review</p>
+                {hasFormData && (
+                  <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                    ✓ Form data is automatically saved as you type
+                  </p>
+                )}
               </div>
             </div>
-            <button
-              onClick={handleClose}
-              disabled={loading}
-              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors disabled:opacity-50"
-            >
-              <X className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-            </button>
+            <div className="flex items-center space-x-2">
+              {hasFormData && (
+                <button
+                  onClick={handleClearForm}
+                  disabled={loading}
+                  className="px-3 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  Clear Form
+                </button>
+              )}
+              <button
+                onClick={handleClose}
+                disabled={loading}
+                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors disabled:opacity-50"
+              >
+                <X className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+              </button>
+            </div>
           </div>
 
           {error && (
@@ -538,6 +601,7 @@ export default function AgentRegistrationModal({ isOpen, onClose, onSubmitted }:
                 <li>• Use metric units (cm for height, kg for weight)</li>
                 <li>• Provide accurate and professional information</li>
                 <li>• You can edit your profile after approval</li>
+                <li>• Form data is automatically saved as you type</li>
               </ul>
             </div>
 
