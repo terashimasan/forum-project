@@ -9,41 +9,11 @@ interface EditAgentModalProps {
   onUpdated: () => void;
 }
 
-// Popular services and tags suggestions
-const POPULAR_SERVICES = [
-  'Companion',
-  'Dinner Date',
-  'Social Events',
-  'Travel Companion',
-  'Business Events',
-  'Party Companion',
-  'City Tour Guide',
-  'Shopping Companion',
-  'Cultural Events',
-  'Photography Model'
-];
-
-const POPULAR_TAGS = [
-  'professional',
-  'friendly',
-  'elegant',
-  'sophisticated',
-  'multilingual',
-  'experienced',
-  'reliable',
-  'discreet',
-  'charming',
-  'educated',
-  'stylish',
-  'outgoing',
-  'cultured',
-  'articulate',
-  'versatile'
-];
-
 export default function EditAgentModal({ isOpen, onClose, agentData, onUpdated }: EditAgentModalProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [popularServices, setPopularServices] = useState<string[]>([]);
+  const [popularTags, setPopularTags] = useState<string[]>([]);
   const [formData, setFormData] = useState({
     profile_picture: '',
     height: '',
@@ -82,6 +52,77 @@ export default function EditAgentModal({ isOpen, onClose, agentData, onUpdated }
   // Parse formatted number back to plain number
   const parseNumber = (value: string) => {
     return value.replace(/,/g, '');
+  };
+
+  // Fetch popular services and tags when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      fetchPopularServicesAndTags();
+    }
+  }, [isOpen]);
+
+  const fetchPopularServicesAndTags = async () => {
+    try {
+      // Fetch all agents to analyze their services and tags
+      const { data: agents } = await supabase
+        .from('agents')
+        .select('services, tags')
+        .eq('status', 'approved');
+
+      if (agents) {
+        // Count service occurrences
+        const serviceCount: Record<string, number> = {};
+        const tagCount: Record<string, number> = {};
+
+        agents.forEach(agent => {
+          // Count services
+          if (agent.services && Array.isArray(agent.services)) {
+            agent.services.forEach((service: string) => {
+              if (service && service.trim()) {
+                const normalizedService = service.trim();
+                serviceCount[normalizedService] = (serviceCount[normalizedService] || 0) + 1;
+              }
+            });
+          }
+
+          // Count tags
+          if (agent.tags && Array.isArray(agent.tags)) {
+            agent.tags.forEach((tag: string) => {
+              if (tag && tag.trim()) {
+                const normalizedTag = tag.trim();
+                tagCount[normalizedTag] = (tagCount[normalizedTag] || 0) + 1;
+              }
+            });
+          }
+        });
+
+        // Sort by popularity and take top 10
+        const topServices = Object.entries(serviceCount)
+          .sort(([,a], [,b]) => b - a)
+          .slice(0, 10)
+          .map(([service]) => service);
+
+        const topTags = Object.entries(tagCount)
+          .sort(([,a], [,b]) => b - a)
+          .slice(0, 15)
+          .map(([tag]) => tag);
+
+        setPopularServices(topServices);
+        setPopularTags(topTags);
+      }
+    } catch (error) {
+      console.error('Error fetching popular services and tags:', error);
+      // Fallback to default suggestions if fetch fails
+      setPopularServices([
+        'Companion', 'Dinner Date', 'Social Events', 'Travel Companion', 'Business Events',
+        'Party Companion', 'City Tour Guide', 'Shopping Companion', 'Cultural Events', 'Photography Model'
+      ]);
+      setPopularTags([
+        'professional', 'friendly', 'elegant', 'sophisticated', 'multilingual',
+        'experienced', 'reliable', 'discreet', 'charming', 'educated',
+        'stylish', 'outgoing', 'cultured', 'articulate', 'versatile'
+      ]);
+    }
   };
 
   useEffect(() => {
@@ -283,7 +324,7 @@ export default function EditAgentModal({ isOpen, onClose, agentData, onUpdated }
             {/* Profile Picture */}
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Profile Picture URL (Max 5MB)
+                Profile Picture URL (Max 5MB) *
               </label>
               <input
                 type="url"
@@ -291,6 +332,7 @@ export default function EditAgentModal({ isOpen, onClose, agentData, onUpdated }
                 onChange={(e) => setFormData({ ...formData, profile_picture: e.target.value })}
                 className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
                 placeholder="https://example.com/photo.jpg"
+                required
               />
             </div>
 
@@ -334,6 +376,28 @@ export default function EditAgentModal({ isOpen, onClose, agentData, onUpdated }
             {/* Services */}
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Services Offered</label>
+              
+              {/* Added Services */}
+              {formData.services.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-3">
+                  {formData.services.map((service, index) => (
+                    <span
+                      key={index}
+                      className="inline-flex items-center space-x-2 px-3 py-1 bg-pink-100 dark:bg-pink-900/30 text-pink-800 dark:text-pink-300 rounded-full"
+                    >
+                      <span>{service}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeService(index)}
+                        className="text-pink-600 dark:text-pink-400 hover:text-pink-800 dark:hover:text-pink-200"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+
               <div className="flex space-x-2 mb-3">
                 <input
                   type="text"
@@ -353,39 +417,23 @@ export default function EditAgentModal({ isOpen, onClose, agentData, onUpdated }
               </div>
 
               {/* Popular Services Suggestions */}
-              <div className="mb-3">
-                <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">Popular services (click to add):</p>
-                <div className="flex flex-wrap gap-2">
-                  {POPULAR_SERVICES.filter(service => !formData.services.includes(service)).map((service) => (
-                    <button
-                      key={service}
-                      type="button"
-                      onClick={() => addSuggestedService(service)}
-                      className="px-2 py-1 text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-md hover:bg-pink-100 dark:hover:bg-pink-900/30 hover:text-pink-700 dark:hover:text-pink-300 transition-colors"
-                    >
-                      + {service}
-                    </button>
-                  ))}
+              {popularServices.length > 0 && (
+                <div className="mb-3">
+                  <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">Popular services (click to add):</p>
+                  <div className="flex flex-wrap gap-2">
+                    {popularServices.filter(service => !formData.services.includes(service)).map((service) => (
+                      <button
+                        key={service}
+                        type="button"
+                        onClick={() => addSuggestedService(service)}
+                        className="px-2 py-1 text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-md hover:bg-pink-100 dark:hover:bg-pink-900/30 hover:text-pink-700 dark:hover:text-pink-300 transition-colors"
+                      >
+                        + {service}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                {formData.services.map((service, index) => (
-                  <span
-                    key={index}
-                    className="inline-flex items-center space-x-2 px-3 py-1 bg-pink-100 dark:bg-pink-900/30 text-pink-800 dark:text-pink-300 rounded-full"
-                  >
-                    <span>{service}</span>
-                    <button
-                      type="button"
-                      onClick={() => removeService(index)}
-                      className="text-pink-600 dark:text-pink-400 hover:text-pink-800 dark:hover:text-pink-200"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  </span>
-                ))}
-              </div>
+              )}
             </div>
 
             {/* Currency Selection */}
@@ -521,6 +569,28 @@ export default function EditAgentModal({ isOpen, onClose, agentData, onUpdated }
             {/* Tags */}
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Tags</label>
+              
+              {/* Added Tags */}
+              {formData.tags.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-3">
+                  {formData.tags.map((tag, index) => (
+                    <span
+                      key={index}
+                      className="inline-flex items-center space-x-2 px-3 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300 rounded-full"
+                    >
+                      <span>#{tag}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeTag(index)}
+                        className="text-purple-600 dark:text-purple-400 hover:text-purple-800 dark:hover:text-purple-200"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+
               <div className="flex space-x-2 mb-3">
                 <input
                   type="text"
@@ -540,39 +610,30 @@ export default function EditAgentModal({ isOpen, onClose, agentData, onUpdated }
               </div>
 
               {/* Popular Tags Suggestions */}
-              <div className="mb-3">
-                <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">Popular tags (click to add):</p>
-                <div className="flex flex-wrap gap-2">
-                  {POPULAR_TAGS.filter(tag => !formData.tags.includes(tag)).map((tag) => (
-                    <button
-                      key={tag}
-                      type="button"
-                      onClick={() => addSuggestedTag(tag)}
-                      className="px-2 py-1 text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-md hover:bg-purple-100 dark:hover:bg-purple-900/30 hover:text-purple-700 dark:hover:text-purple-300 transition-colors"
-                    >
-                      + {tag}
-                    </button>
-                  ))}
+              {popularTags.length > 0 && (
+                <div className="mb-3">
+                  <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">Popular tags (click to add):</p>
+                  <div className="flex flex-wrap gap-2">
+                    {popularTags.filter(tag => !formData.tags.includes(tag)).map((tag) => (
+                      <button
+                        key={tag}
+                        type="button"
+                        onClick={() => addSuggestedTag(tag)}
+                        className="px-2 py-1 text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-md hover:bg-purple-100 dark:hover:bg-purple-900/30 hover:text-purple-700 dark:hover:text-purple-300 transition-colors"
+                      >
+                        + {tag}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
+            </div>
 
-              <div className="flex flex-wrap gap-2">
-                {formData.tags.map((tag, index) => (
-                  <span
-                    key={index}
-                    className="inline-flex items-center space-x-2 px-3 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300 rounded-full"
-                  >
-                    <span>#{tag}</span>
-                    <button
-                      type="button"
-                      onClick={() => removeTag(index)}
-                      className="text-purple-600 dark:text-purple-400 hover:text-purple-800 dark:hover:text-purple-200"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  </span>
-                ))}
-              </div>
+            <div className="bg-pink-50 dark:bg-pink-900/20 border border-pink-200 dark:border-pink-800 rounded-lg p-4">
+              <h4 className="font-medium text-pink-900 dark:text-pink-300 mb-2">Agent Profile Guidelines</h4>
+              <ul className="text-sm text-pink-700 dark:text-pink-400 space-y-1">
+                <li>• Profile picture is required, all other text fields are optional</li>
+              </ul>
             </div>
 
             <div className="flex justify-end space-x-3">
