@@ -9,6 +9,38 @@ interface EditAgentModalProps {
   onUpdated: () => void;
 }
 
+// Popular services and tags suggestions
+const POPULAR_SERVICES = [
+  'Companion',
+  'Dinner Date',
+  'Social Events',
+  'Travel Companion',
+  'Business Events',
+  'Party Companion',
+  'City Tour Guide',
+  'Shopping Companion',
+  'Cultural Events',
+  'Photography Model'
+];
+
+const POPULAR_TAGS = [
+  'professional',
+  'friendly',
+  'elegant',
+  'sophisticated',
+  'multilingual',
+  'experienced',
+  'reliable',
+  'discreet',
+  'charming',
+  'educated',
+  'stylish',
+  'outgoing',
+  'cultured',
+  'articulate',
+  'versatile'
+];
+
 export default function EditAgentModal({ isOpen, onClose, agentData, onUpdated }: EditAgentModalProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -22,7 +54,7 @@ export default function EditAgentModal({ isOpen, onClose, agentData, onUpdated }
     pricing_long_time: '',
     pricing_overnight: '',
     pricing_private: '',
-    pricing_currency: 'USD',
+    pricing_currency: 'IDR',
     description: '',
     social_twitter: '',
     social_instagram: '',
@@ -34,10 +66,23 @@ export default function EditAgentModal({ isOpen, onClose, agentData, onUpdated }
   const [newTag, setNewTag] = useState('');
 
   const currencies = [
+    { code: 'IDR', symbol: 'Rp', name: 'Indonesian Rupiah' },
     { code: 'USD', symbol: '$', name: 'US Dollar' },
-    { code: 'SGD', symbol: 'S$', name: 'Singapore Dollar' },
-    { code: 'IDR', symbol: 'Rp', name: 'Indonesian Rupiah' }
+    { code: 'SGD', symbol: 'S$', name: 'Singapore Dollar' }
   ];
+
+  // Format number with commas
+  const formatNumber = (value: string) => {
+    // Remove all non-digits
+    const numericValue = value.replace(/\D/g, '');
+    // Add commas for thousands
+    return numericValue.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  };
+
+  // Parse formatted number back to plain number
+  const parseNumber = (value: string) => {
+    return value.replace(/,/g, '');
+  };
 
   useEffect(() => {
     if (isOpen && agentData) {
@@ -49,10 +94,16 @@ export default function EditAgentModal({ isOpen, onClose, agentData, onUpdated }
 
       // Extract currency from pricing
       const extractCurrency = (price: string) => {
-        if (!price) return 'USD';
+        if (!price) return 'IDR';
         if (price.startsWith('S$')) return 'SGD';
-        if (price.startsWith('Rp')) return 'IDR';
-        return 'USD';
+        if (price.startsWith('$') && !price.startsWith('Rp')) return 'USD';
+        return 'IDR';
+      };
+
+      // Format extracted price numbers with commas
+      const formatExtractedPrice = (price: string) => {
+        const numericValue = extractNumber(price);
+        return numericValue ? formatNumber(numericValue) : '';
       };
 
       setFormData({
@@ -61,10 +112,10 @@ export default function EditAgentModal({ isOpen, onClose, agentData, onUpdated }
         weight: extractNumber(agentData.weight || ''),
         current_location: agentData.current_location || '',
         services: agentData.services || [],
-        pricing_short_time: extractNumber(agentData.pricing_short_time || ''),
-        pricing_long_time: extractNumber(agentData.pricing_long_time || ''),
-        pricing_overnight: extractNumber(agentData.pricing_overnight || ''),
-        pricing_private: extractNumber(agentData.pricing_private || ''),
+        pricing_short_time: formatExtractedPrice(agentData.pricing_short_time || ''),
+        pricing_long_time: formatExtractedPrice(agentData.pricing_long_time || ''),
+        pricing_overnight: formatExtractedPrice(agentData.pricing_overnight || ''),
+        pricing_private: formatExtractedPrice(agentData.pricing_private || ''),
         pricing_currency: extractCurrency(agentData.pricing_short_time || ''),
         description: agentData.description || '',
         social_twitter: agentData.social_twitter || '',
@@ -86,9 +137,10 @@ export default function EditAgentModal({ isOpen, onClose, agentData, onUpdated }
     try {
       // Format pricing with currency
       const formatPrice = (price: string) => {
-        if (!price) return null;
+        if (!price || price.trim() === '') return null;
         const currency = currencies.find(c => c.code === formData.pricing_currency);
-        return `${currency?.symbol || '$'}${price}`;
+        const cleanPrice = parseNumber(price.trim());
+        return `${currency?.symbol || 'Rp'}${cleanPrice}`;
       };
 
       const { error } = await supabase
@@ -124,12 +176,22 @@ export default function EditAgentModal({ isOpen, onClose, agentData, onUpdated }
   };
 
   const addService = () => {
-    if (newService.trim() && !formData.services.includes(newService.trim())) {
+    const trimmedService = newService.trim();
+    if (trimmedService && !formData.services.includes(trimmedService)) {
       setFormData({
         ...formData,
-        services: [...formData.services, newService.trim()]
+        services: [...formData.services, trimmedService]
       });
       setNewService('');
+    }
+  };
+
+  const addSuggestedService = (service: string) => {
+    if (!formData.services.includes(service)) {
+      setFormData({
+        ...formData,
+        services: [...formData.services, service]
+      });
     }
   };
 
@@ -141,12 +203,22 @@ export default function EditAgentModal({ isOpen, onClose, agentData, onUpdated }
   };
 
   const addTag = () => {
-    if (newTag.trim() && !formData.tags.includes(newTag.trim())) {
+    const trimmedTag = newTag.trim();
+    if (trimmedTag && !formData.tags.includes(trimmedTag)) {
       setFormData({
         ...formData,
-        tags: [...formData.tags, newTag.trim()]
+        tags: [...formData.tags, trimmedTag]
       });
       setNewTag('');
+    }
+  };
+
+  const addSuggestedTag = (tag: string) => {
+    if (!formData.tags.includes(tag)) {
+      setFormData({
+        ...formData,
+        tags: [...formData.tags, tag]
+      });
     }
   };
 
@@ -161,6 +233,19 @@ export default function EditAgentModal({ isOpen, onClose, agentData, onUpdated }
     // Only allow numbers and decimal points
     const numericValue = value.replace(/[^0-9.]/g, '');
     setFormData({ ...formData, [field]: numericValue });
+  };
+
+  const handlePriceInput = (value: string, field: string) => {
+    // Format the price with commas
+    const formattedValue = formatNumber(value);
+    setFormData({ ...formData, [field]: formattedValue });
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent, action: () => void) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      action();
+    }
   };
 
   return (
@@ -254,7 +339,7 @@ export default function EditAgentModal({ isOpen, onClose, agentData, onUpdated }
                   type="text"
                   value={newService}
                   onChange={(e) => setNewService(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addService())}
+                  onKeyPress={(e) => handleKeyPress(e, addService)}
                   className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
                   placeholder="Add a service"
                 />
@@ -266,6 +351,24 @@ export default function EditAgentModal({ isOpen, onClose, agentData, onUpdated }
                   Add
                 </button>
               </div>
+
+              {/* Popular Services Suggestions */}
+              <div className="mb-3">
+                <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">Popular services (click to add):</p>
+                <div className="flex flex-wrap gap-2">
+                  {POPULAR_SERVICES.filter(service => !formData.services.includes(service)).map((service) => (
+                    <button
+                      key={service}
+                      type="button"
+                      onClick={() => addSuggestedService(service)}
+                      className="px-2 py-1 text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-md hover:bg-pink-100 dark:hover:bg-pink-900/30 hover:text-pink-700 dark:hover:text-pink-300 transition-colors"
+                    >
+                      + {service}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div className="flex flex-wrap gap-2">
                 {formData.services.map((service, index) => (
                   <span
@@ -314,9 +417,9 @@ export default function EditAgentModal({ isOpen, onClose, agentData, onUpdated }
                     <input
                       type="text"
                       value={formData.pricing_short_time}
-                      onChange={(e) => handleNumberInput(e.target.value, 'pricing_short_time')}
+                      onChange={(e) => handlePriceInput(e.target.value, 'pricing_short_time')}
                       className="w-full pl-8 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
-                      placeholder="200"
+                      placeholder="2,500,000"
                     />
                   </div>
                 </div>
@@ -329,9 +432,9 @@ export default function EditAgentModal({ isOpen, onClose, agentData, onUpdated }
                     <input
                       type="text"
                       value={formData.pricing_long_time}
-                      onChange={(e) => handleNumberInput(e.target.value, 'pricing_long_time')}
+                      onChange={(e) => handlePriceInput(e.target.value, 'pricing_long_time')}
                       className="w-full pl-8 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
-                      placeholder="400"
+                      placeholder="5,000,000"
                     />
                   </div>
                 </div>
@@ -344,9 +447,9 @@ export default function EditAgentModal({ isOpen, onClose, agentData, onUpdated }
                     <input
                       type="text"
                       value={formData.pricing_overnight}
-                      onChange={(e) => handleNumberInput(e.target.value, 'pricing_overnight')}
+                      onChange={(e) => handlePriceInput(e.target.value, 'pricing_overnight')}
                       className="w-full pl-8 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
-                      placeholder="800"
+                      placeholder="10,000,000"
                     />
                   </div>
                 </div>
@@ -359,9 +462,9 @@ export default function EditAgentModal({ isOpen, onClose, agentData, onUpdated }
                     <input
                       type="text"
                       value={formData.pricing_private}
-                      onChange={(e) => handleNumberInput(e.target.value, 'pricing_private')}
+                      onChange={(e) => handlePriceInput(e.target.value, 'pricing_private')}
                       className="w-full pl-8 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
-                      placeholder="1000"
+                      placeholder="15,000,000"
                     />
                   </div>
                 </div>
@@ -423,7 +526,7 @@ export default function EditAgentModal({ isOpen, onClose, agentData, onUpdated }
                   type="text"
                   value={newTag}
                   onChange={(e) => setNewTag(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addTag())}
+                  onKeyPress={(e) => handleKeyPress(e, addTag)}
                   className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
                   placeholder="Add a tag"
                 />
@@ -435,6 +538,24 @@ export default function EditAgentModal({ isOpen, onClose, agentData, onUpdated }
                   Add
                 </button>
               </div>
+
+              {/* Popular Tags Suggestions */}
+              <div className="mb-3">
+                <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">Popular tags (click to add):</p>
+                <div className="flex flex-wrap gap-2">
+                  {POPULAR_TAGS.filter(tag => !formData.tags.includes(tag)).map((tag) => (
+                    <button
+                      key={tag}
+                      type="button"
+                      onClick={() => addSuggestedTag(tag)}
+                      className="px-2 py-1 text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-md hover:bg-purple-100 dark:hover:bg-purple-900/30 hover:text-purple-700 dark:hover:text-purple-300 transition-colors"
+                    >
+                      + {tag}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div className="flex flex-wrap gap-2">
                 {formData.tags.map((tag, index) => (
                   <span
