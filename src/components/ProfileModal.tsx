@@ -29,7 +29,8 @@ export default function ProfileModal({ isOpen, onClose, profile, onProfileUpdate
 
   useEffect(() => {
     if (isOpen && profile && isOwnProfile) {
-      if (!profile.is_verified && !profile.is_owner) {
+      // Only check for verification/admin requests if user is not already admin/owner and it's their own profile
+      if (!profile.is_verified && !profile.is_admin && !profile.is_owner) {
         checkVerificationRequest();
       }
       if (profile.is_verified && !profile.is_admin && !profile.is_owner) {
@@ -96,11 +97,21 @@ export default function ProfileModal({ isOpen, onClose, profile, onProfileUpdate
     Math.min(100, ((profile.post_count - currentLevel.minPosts) / (nextLevel.minPosts - currentLevel.minPosts)) * 100) : 
     100;
 
-  // Check if user should see verification button (not verified, not owner, no pending request)
-  const shouldShowVerificationButton = isOwnProfile && !profile.is_verified && !profile.is_owner && !hasVerificationRequest;
+  // Check if user should see verification button
+  // Only show if: own profile, not verified, not admin, not owner, no pending request
+  const shouldShowVerificationButton = isOwnProfile && 
+    !profile.is_verified && 
+    !profile.is_admin && 
+    !profile.is_owner && 
+    !hasVerificationRequest;
   
-  // Check if user should see admin request button (verified, not admin, not owner, no pending request)
-  const shouldShowAdminRequestButton = isOwnProfile && profile.is_verified && !profile.is_admin && !profile.is_owner && !hasAdminRequest;
+  // Check if user should see admin request button
+  // Only show if: own profile, verified, not admin, not owner, no pending request
+  const shouldShowAdminRequestButton = isOwnProfile && 
+    profile.is_verified && 
+    !profile.is_admin && 
+    !profile.is_owner && 
+    !hasAdminRequest;
 
   return (
     <>
@@ -114,7 +125,7 @@ export default function ProfileModal({ isOpen, onClose, profile, onProfileUpdate
                 {isOwnProfile ? 'User Profile' : `${profile.username}'s Profile`}
               </h2>
               <div className="flex items-center space-x-2">
-                {/* Verification Button - Only show for non-verified, non-owner users without pending requests */}
+                {/* Verification Button - Only show for non-verified, non-admin, non-owner users without pending requests */}
                 {shouldShowVerificationButton && (
                   <button
                     onClick={() => setShowVerificationModal(true)}
@@ -136,6 +147,7 @@ export default function ProfileModal({ isOpen, onClose, profile, onProfileUpdate
                   </button>
                 )}
                 
+                {/* Pending Status Indicators */}
                 {hasVerificationRequest && (
                   <div className="flex items-center space-x-2 px-4 py-2 bg-yellow-100 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-400 rounded-lg text-sm font-medium">
                     <Upload className="w-4 h-4" />
