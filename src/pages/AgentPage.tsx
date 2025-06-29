@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Users, Twitter, Instagram, Facebook, MessageCircle, ChevronLeft, ChevronRight, Plus, Edit, MapPin, Handshake } from 'lucide-react';
+import { Search, Users, Twitter, Instagram, Facebook, MessageCircle, ChevronLeft, ChevronRight, Plus, Settings, MapPin, Handshake } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useNavigate } from 'react-router-dom';
-import AgentRegistrationModal from '../components/AgentRegistrationModal';
-import EditAgentModal from '../components/EditAgentModal';
+import ManageAgentsModal from '../components/ManageAgentsModal';
 import DealModal from '../components/DealModal';
 
 const AGENTS_PER_PAGE = 9;
@@ -13,12 +12,11 @@ export default function AgentPage() {
   const [agents, setAgents] = useState<any[]>([]);
   const [filteredAgents, setFilteredAgents] = useState<any[]>([]);
   const [currentUser, setCurrentUser] = useState<any>(null);
-  const [userAgent, setUserAgent] = useState<any>(null);
+  const [userAgents, setUserAgents] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(true);
-  const [showRegistrationModal, setShowRegistrationModal] = useState(false);
-  const [showEditModal, setShowEditModal] = useState(false);
+  const [showManageModal, setShowManageModal] = useState(false);
   const [showDealModal, setShowDealModal] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState<any>(null);
 
@@ -41,13 +39,12 @@ export default function AgentPage() {
         .single();
       setCurrentUser(profile);
 
-      // Check if user has an agent profile
-      const { data: agentProfile } = await supabase
+      // Fetch user's agent profiles
+      const { data: agentProfiles } = await supabase
         .from('agents')
         .select('*')
-        .eq('user_id', user.id)
-        .maybeSingle();
-      setUserAgent(agentProfile);
+        .eq('user_id', user.id);
+      setUserAgents(agentProfiles || []);
     }
   };
 
@@ -133,8 +130,8 @@ export default function AgentPage() {
     }
   };
 
-  const canRegisterAsAgent = currentUser?.is_verified && !userAgent;
-  const canEditAgent = userAgent && userAgent.status === 'approved';
+  const canCreateAgents = currentUser?.is_verified && userAgents.length < 5;
+  const hasAgents = userAgents.length > 0;
 
   if (loading) {
     return (
@@ -163,37 +160,37 @@ export default function AgentPage() {
 
           {/* Action Buttons */}
           <div className="flex items-center space-x-3">
-            {canEditAgent && (
+            {hasAgents && (
               <button
-                onClick={() => setShowEditModal(true)}
+                onClick={() => setShowManageModal(true)}
                 className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
               >
-                <Edit className="w-4 h-4" />
-                <span>Edit Agent Data</span>
+                <Settings className="w-4 h-4" />
+                <span>Manage Agents ({userAgents.length}/5)</span>
               </button>
             )}
 
-            {canRegisterAsAgent && (
+            {canCreateAgents && !hasAgents && (
               <button
-                onClick={() => setShowRegistrationModal(true)}
+                onClick={() => setShowManageModal(true)}
                 className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-pink-600 to-purple-600 text-white rounded-lg hover:from-pink-700 hover:to-purple-700 transition-colors font-medium"
               >
                 <Plus className="w-4 h-4" />
-                <span>Sign as Agent</span>
+                <span>Create Agent Profile</span>
               </button>
             )}
 
-            {userAgent && userAgent.status === 'pending' && (
-              <div className="flex items-center space-x-2 px-4 py-2 bg-yellow-100 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-400 rounded-lg font-medium">
+            {currentUser?.is_verified && userAgents.length >= 5 && (
+              <div className="flex items-center space-x-2 px-4 py-2 bg-orange-100 dark:bg-orange-900/20 text-orange-800 dark:text-orange-400 rounded-lg font-medium">
                 <Users className="w-4 h-4" />
-                <span>Agent Verification Pending</span>
+                <span>Agent Limit Reached (5/5)</span>
               </div>
             )}
 
-            {userAgent && userAgent.status === 'rejected' && (
-              <div className="flex items-center space-x-2 px-4 py-2 bg-red-100 dark:bg-red-900/20 text-red-800 dark:text-red-400 rounded-lg font-medium">
+            {!currentUser?.is_verified && currentUser && (
+              <div className="flex items-center space-x-2 px-4 py-2 bg-yellow-100 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-400 rounded-lg font-medium">
                 <Users className="w-4 h-4" />
-                <span>Agent Application Rejected</span>
+                <span>Verification Required</span>
               </div>
             )}
           </div>
@@ -477,25 +474,13 @@ export default function AgentPage() {
         </div>
       )}
 
-      {/* Registration Modal */}
-      <AgentRegistrationModal
-        isOpen={showRegistrationModal}
-        onClose={() => setShowRegistrationModal(false)}
-        onSubmitted={() => {
-          fetchCurrentUser();
-          setShowRegistrationModal(false);
-        }}
-      />
-
-      {/* Edit Modal */}
-      <EditAgentModal
-        isOpen={showEditModal}
-        onClose={() => setShowEditModal(false)}
-        agentData={userAgent}
-        onUpdated={() => {
+      {/* Manage Agents Modal */}
+      <ManageAgentsModal
+        isOpen={showManageModal}
+        onClose={() => setShowManageModal(false)}
+        onAgentsUpdated={() => {
           fetchCurrentUser();
           fetchAgents();
-          setShowEditModal(false);
         }}
       />
 

@@ -100,19 +100,18 @@ export default function AgentRegistrationModal({ isOpen, onClose, onSubmitted }:
         throw new Error('Only verified users can register as agents');
       }
 
-      // Check if user already has an agent profile
-      const { data: existingAgent, error: checkError } = await supabase
+      // Check agent count limit
+      const { count, error: countError } = await supabase
         .from('agents')
-        .select('id')
-        .eq('user_id', user.id)
-        .maybeSingle();
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', user.id);
 
-      if (checkError) {
-        throw new Error('Failed to check existing agent profile');
+      if (countError) {
+        throw new Error('Failed to check agent count');
       }
 
-      if (existingAgent) {
-        throw new Error('You already have an agent profile');
+      if (count && count >= 5) {
+        throw new Error('You can only create up to 5 agent profiles');
       }
 
       // Format pricing with currency
@@ -139,7 +138,8 @@ export default function AgentRegistrationModal({ isOpen, onClose, onSubmitted }:
         social_instagram: formData.social_instagram.trim() || null,
         social_facebook: formData.social_facebook.trim() || null,
         social_telegram: formData.social_telegram.trim() || null,
-        tags: formData.tags.filter(tag => tag.trim() !== '')
+        tags: formData.tags.filter(tag => tag.trim() !== ''),
+        status: 'approved' // Auto-approve new agents
       };
 
       const { error: insertError } = await supabase
@@ -148,7 +148,7 @@ export default function AgentRegistrationModal({ isOpen, onClose, onSubmitted }:
 
       if (insertError) {
         console.error('Agent insertion error:', insertError);
-        throw new Error(insertError.message || 'Failed to submit agent registration');
+        throw new Error(insertError.message || 'Failed to create agent profile');
       }
 
       // Success - call callbacks and clear form
@@ -273,8 +273,8 @@ export default function AgentRegistrationModal({ isOpen, onClose, onSubmitted }:
                 <Users className="w-5 h-5 text-white" />
               </div>
               <div>
-                <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Register as Agent</h2>
-                <p className="text-gray-600 dark:text-gray-400">Submit your agent profile for review</p>
+                <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Create Agent Profile</h2>
+                <p className="text-gray-600 dark:text-gray-400">Create a new agent profile (automatically approved)</p>
                 {hasFormData && (
                   <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
                     ✓ Form data is automatically saved as you type
@@ -306,7 +306,7 @@ export default function AgentRegistrationModal({ isOpen, onClose, onSubmitted }:
             <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-start gap-3">
               <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
               <div>
-                <p className="text-sm text-red-700 dark:text-red-400 font-medium">Registration Failed</p>
+                <p className="text-sm text-red-700 dark:text-red-400 font-medium">Creation Failed</p>
                 <p className="text-sm text-red-600 dark:text-red-500 mt-1">{error}</p>
               </div>
             </div>
@@ -593,14 +593,14 @@ export default function AgentRegistrationModal({ isOpen, onClose, onSubmitted }:
             </div>
 
             <div className="bg-pink-50 dark:bg-pink-900/20 border border-pink-200 dark:border-pink-800 rounded-lg p-4">
-              <h4 className="font-medium text-pink-900 dark:text-pink-300 mb-2">Registration Guidelines</h4>
+              <h4 className="font-medium text-pink-900 dark:text-pink-300 mb-2">Agent Profile Guidelines</h4>
               <ul className="text-sm text-pink-700 dark:text-pink-400 space-y-1">
-                <li>• Only verified users can register as agents</li>
-                <li>• All agent profiles require admin approval</li>
+                <li>• Only verified users can create agent profiles</li>
+                <li>• You can create up to 5 agent profiles</li>
+                <li>• All profiles are automatically approved</li>
                 <li>• Profile pictures must be under 5MB</li>
                 <li>• Use metric units (cm for height, kg for weight)</li>
                 <li>• Provide accurate and professional information</li>
-                <li>• You can edit your profile after approval</li>
                 <li>• Form data is automatically saved as you type</li>
               </ul>
             </div>
@@ -620,7 +620,7 @@ export default function AgentRegistrationModal({ isOpen, onClose, onSubmitted }:
                 className="px-6 py-3 bg-gradient-to-r from-pink-600 to-purple-600 text-white rounded-lg font-medium hover:from-pink-700 hover:to-purple-700 transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 flex items-center space-x-2"
               >
                 <Send className="w-4 h-4" />
-                <span>{loading ? 'Submitting...' : 'Submit for Review'}</span>
+                <span>{loading ? 'Creating...' : 'Create Agent Profile'}</span>
               </button>
             </div>
           </form>
