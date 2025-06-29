@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, CheckCircle, XCircle, Plus, Minus, Shield, Hash, MessageSquare, Edit, Trash2, Save, Eye, EyeOff, Pin, Lock, Unlock, Flag, Star, Users, ChevronUp, ChevronDown } from 'lucide-react';
+import { X, Shield, Users, CheckCircle, XCircle, Award, Ban, UserCheck, AlertTriangle, Search, Filter, MoreVertical, Save } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import UserBadge from './UserBadge';
 
@@ -9,83 +9,43 @@ interface AdminPanelProps {
 }
 
 export default function AdminPanel({ isOpen, onClose }: AdminPanelProps) {
-  const [categories, setCategories] = useState<any[]>([]);
-  const [threads, setThreads] = useState<any[]>([]);
-  const [posts, setPosts] = useState<any[]>([]);
+  const [activeSection, setActiveSection] = useState('verification-requests');
   const [verificationRequests, setVerificationRequests] = useState<any[]>([]);
   const [reviewAssessments, setReviewAssessments] = useState<any[]>([]);
-  const [agentRequests, setAgentRequests] = useState<any[]>([]);
-  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [users, setUsers] = useState<any[]>([]);
+  const [filteredUsers, setFilteredUsers] = useState<any[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [userFilter, setUserFilter] = useState('all');
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState('verification');
-  
-  // Category form state
-  const [categoryForm, setCategoryForm] = useState({
-    id: '',
-    name: '',
-    description: '',
-    color: '#3b82f6'
-  });
-  const [editingCategory, setEditingCategory] = useState<string | null>(null);
+  const [selectedUser, setSelectedUser] = useState<any>(null);
+  const [showUserMenu, setShowUserMenu] = useState<string | null>(null);
+  const [editingUser, setEditingUser] = useState<any>(null);
 
   useEffect(() => {
     if (isOpen) {
-      fetchCurrentUser();
-      fetchCategories();
-      fetchThreads();
-      fetchPosts();
-      fetchVerificationRequests();
-      fetchReviewAssessments();
-      fetchAgentRequests();
+      fetchData();
     }
-  }, [isOpen]);
+  }, [isOpen, activeSection]);
 
-  const fetchCurrentUser = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single();
-      setCurrentUser(profile);
+  useEffect(() => {
+    filterUsers();
+  }, [users, searchTerm, userFilter]);
+
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      if (activeSection === 'verification-requests') {
+        await fetchVerificationRequests();
+      } else if (activeSection === 'review-assessments') {
+        await fetchReviewAssessments();
+      } else if (activeSection === 'user-manager') {
+        await fetchUsers();
+      }
+    } catch (error) {
+      console.error('Error fetching data:', error);
+    } finally {
+      setLoading(false);
     }
-  };
-
-  const fetchCategories = async () => {
-    const { data } = await supabase
-      .from('categories')
-      .select('*')
-      .order('sort_order')
-      .order('name');
-    
-    if (data) setCategories(data);
-  };
-
-  const fetchThreads = async () => {
-    const { data } = await supabase
-      .from('threads')
-      .select(`
-        *,
-        profiles(*),
-        categories(*)
-      `)
-      .order('created_at', { ascending: false });
-    
-    if (data) setThreads(data);
-  };
-
-  const fetchPosts = async () => {
-    const { data } = await supabase
-      .from('posts')
-      .select(`
-        *,
-        profiles(*),
-        threads(title)
-      `)
-      .order('created_at', { ascending: false });
-    
-    if (data) setPosts(data);
   };
 
   const fetchVerificationRequests = async () => {
@@ -107,9 +67,9 @@ export default function AdminPanel({ isOpen, onClose }: AdminPanelProps) {
         *,
         profiles(username, avatar_url),
         deal_reviews(
-          *,
+          rating,
+          review_text,
           reviewer:profiles!deal_reviews_reviewer_id_fkey(username, avatar_url),
-          reviewee:profiles!deal_reviews_reviewee_id_fkey(username, avatar_url),
           deal:deals(title)
         )
       `)
@@ -118,19 +78,50 @@ export default function AdminPanel({ isOpen, onClose }: AdminPanelProps) {
     if (data) setReviewAssessments(data);
   };
 
-  const fetchAgentRequests = async () => {
+  const fetchUsers = async () => {
     const { data } = await supabase
-      .from('agents')
-      .select(`
-        *,
-        profiles(username, avatar_url)
-      `)
+      .from('profiles')
+      .select('*')
       .order('created_at', { ascending: false });
     
-    if (data) setAgentRequests(data);
+    if (data) setUsers(data);
   };
 
-  // Verification Request Functions
+  const filterUsers = () => {
+    let filtered = users;
+
+    // Apply search filter
+    if (searchTerm.trim()) {
+      const search = searchTerm.toLowerCase();
+      filtered = filtered.filter(user => 
+        user.username.toLowerCase().includes(search) ||
+        (user.bio && user.bio.toLowerCase().includes(search)) ||
+        (user.honorable_title && user.honorable_title.toLowerCase().includes(search))
+      );
+    }
+
+    // Apply status filter
+    switch (userFilter) {
+      case 'verified':
+        filtered = filtered.filter(user => user.is_verified);
+        break;
+      case 'admin':
+        filtered = filtered.filter(user => user.is_admin);
+        break;
+      case 'owner':
+        filtered = filtered.filter(user => user.is_owner);
+        break;
+      case 'banned':
+        filtered = filtered.filter(user => user.is_banned);
+        break;
+      case 'regular':
+        filtered = filtered.filter(user => !user.is_verified && !user.is_admin && !user.is_owner && !user.is_banned);
+        break;
+    }
+
+    setFilteredUsers(filtered);
+  };
+
   const handleVerificationRequest = async (requestId: string, status: 'approved' | 'rejected', adminNotes?: string) => {
     const request = verificationRequests.find(r => r.id === requestId);
     if (!request) return;
@@ -163,7 +154,6 @@ export default function AdminPanel({ isOpen, onClose }: AdminPanelProps) {
     }
   };
 
-  // Review Assessment Functions
   const handleReviewAssessment = async (assessmentId: string, status: 'approved' | 'rejected', adminNotes?: string) => {
     const assessment = reviewAssessments.find(a => a.id === assessmentId);
     if (!assessment) return;
@@ -196,219 +186,87 @@ export default function AdminPanel({ isOpen, onClose }: AdminPanelProps) {
     }
   };
 
-  // Agent Request Functions
-  const handleAgentRequest = async (agentId: string, status: 'approved' | 'rejected', adminNotes?: string) => {
+  const handleUserAction = async (userId: string, action: string, value?: any) => {
     try {
+      let updateData: any = {};
+
+      switch (action) {
+        case 'verify':
+          updateData.is_verified = true;
+          break;
+        case 'unverify':
+          updateData.is_verified = false;
+          break;
+        case 'make-admin':
+          updateData.is_admin = true;
+          break;
+        case 'remove-admin':
+          updateData.is_admin = false;
+          break;
+        case 'ban':
+          updateData.is_banned = true;
+          break;
+        case 'unban':
+          updateData.is_banned = false;
+          break;
+        case 'set-title':
+          updateData.honorable_title = value || null;
+          break;
+      }
+
       const { error } = await supabase
-        .from('agents')
-        .update({ 
-          status, 
-          admin_notes: adminNotes || null 
-        })
-        .eq('id', agentId);
+        .from('profiles')
+        .update(updateData)
+        .eq('id', userId);
 
       if (error) throw error;
 
-      fetchAgentRequests();
+      fetchUsers();
+      setShowUserMenu(null);
+      setEditingUser(null);
     } catch (error: any) {
       alert(error.message);
     }
   };
 
-  // Category Management Functions
-  const handleCategorySubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    try {
-      if (editingCategory) {
-        const { error } = await supabase
-          .from('categories')
-          .update({
-            name: categoryForm.name,
-            description: categoryForm.description,
-            color: categoryForm.color
-          })
-          .eq('id', editingCategory);
-        
-        if (error) throw error;
-      } else {
-        // Get the highest sort_order and add 1
-        const maxSortOrder = Math.max(...categories.map(c => c.sort_order || 0), 0);
-        
-        const { error } = await supabase
-          .from('categories')
-          .insert({
-            name: categoryForm.name,
-            description: categoryForm.description,
-            color: categoryForm.color,
-            sort_order: maxSortOrder + 1
-          });
-        
-        if (error) throw error;
-      }
-      
-      setCategoryForm({ id: '', name: '', description: '', color: '#3b82f6' });
-      setEditingCategory(null);
-      fetchCategories();
-    } catch (error: any) {
-      alert(error.message);
+  const menuItems = [
+    {
+      id: 'verification-requests',
+      label: 'Verification Requests',
+      icon: UserCheck,
+      count: verificationRequests.filter(r => r.status === 'pending').length
+    },
+    {
+      id: 'review-assessments',
+      label: 'Review Assessments',
+      icon: AlertTriangle,
+      count: reviewAssessments.filter(a => a.status === 'pending').length
+    },
+    {
+      id: 'user-manager',
+      label: 'User Manager',
+      icon: Users,
+      count: users.length
     }
-  };
-
-  const editCategory = (category: any) => {
-    setCategoryForm({
-      id: category.id,
-      name: category.name,
-      description: category.description || '',
-      color: category.color
-    });
-    setEditingCategory(category.id);
-  };
-
-  const cancelEdit = () => {
-    setEditingCategory(null);
-    setCategoryForm({ id: '', name: '', description: '', color: '#3b82f6' });
-  };
-
-  const deleteCategory = async (categoryId: string) => {
-    if (!confirm('Are you sure you want to delete this category? All threads in this category will also be deleted.')) {
-      return;
-    }
-
-    const { error } = await supabase
-      .from('categories')
-      .delete()
-      .eq('id', categoryId);
-
-    if (!error) {
-      fetchCategories();
-      fetchThreads();
-    }
-  };
-
-  // Category Sorting Functions
-  const moveCategoryUp = async (categoryId: string, currentOrder: number) => {
-    const targetCategory = categories.find(c => c.sort_order === currentOrder - 1);
-    if (!targetCategory) return;
-
-    try {
-      // Swap sort orders
-      await supabase
-        .from('categories')
-        .update({ sort_order: currentOrder })
-        .eq('id', targetCategory.id);
-
-      await supabase
-        .from('categories')
-        .update({ sort_order: currentOrder - 1 })
-        .eq('id', categoryId);
-
-      fetchCategories();
-    } catch (error: any) {
-      alert(error.message);
-    }
-  };
-
-  const moveCategoryDown = async (categoryId: string, currentOrder: number) => {
-    const targetCategory = categories.find(c => c.sort_order === currentOrder + 1);
-    if (!targetCategory) return;
-
-    try {
-      // Swap sort orders
-      await supabase
-        .from('categories')
-        .update({ sort_order: currentOrder })
-        .eq('id', targetCategory.id);
-
-      await supabase
-        .from('categories')
-        .update({ sort_order: currentOrder + 1 })
-        .eq('id', categoryId);
-
-      fetchCategories();
-    } catch (error: any) {
-      alert(error.message);
-    }
-  };
-
-  // Thread Management Functions
-  const toggleThreadPin = async (threadId: string, isPinned: boolean) => {
-    const { error } = await supabase
-      .from('threads')
-      .update({ is_pinned: !isPinned })
-      .eq('id', threadId);
-
-    if (!error) {
-      fetchThreads();
-    }
-  };
-
-  const toggleThreadLock = async (threadId: string, isLocked: boolean) => {
-    const { error } = await supabase
-      .from('threads')
-      .update({ is_locked: !isLocked })
-      .eq('id', threadId);
-
-    if (!error) {
-      fetchThreads();
-    }
-  };
-
-  const deleteThread = async (threadId: string) => {
-    if (!confirm('Are you sure you want to delete this thread? All posts in this thread will also be deleted.')) {
-      return;
-    }
-
-    const { error } = await supabase
-      .from('threads')
-      .delete()
-      .eq('id', threadId);
-
-    if (!error) {
-      fetchThreads();
-      fetchPosts();
-    }
-  };
-
-  // Post Management Functions
-  const deletePost = async (postId: string) => {
-    if (!confirm('Are you sure you want to delete this post?')) {
-      return;
-    }
-
-    const { error } = await supabase
-      .from('posts')
-      .delete()
-      .eq('id', postId);
-
-    if (!error) {
-      fetchPosts();
-    }
-  };
-
-  const renderStars = (rating: number) => {
-    return Array.from({ length: 5 }, (_, index) => (
-      <Star
-        key={index}
-        className={`w-4 h-4 ${
-          index < rating ? 'text-yellow-400 fill-current' : 'text-gray-300 dark:text-gray-600'
-        }`}
-      />
-    ));
-  };
+  ];
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-7xl relative overflow-hidden max-h-[90vh] overflow-y-auto">
-        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-red-600 to-orange-600"></div>
-        
-        <div className="p-6">
-          <div className="flex items-center justify-between mb-6">
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex z-50">
+      {/* Sidebar */}
+      <div className="w-80 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 flex flex-col">
+        {/* Header */}
+        <div className="p-6 border-b border-gray-200 dark:border-gray-700">
+          <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
-              <Shield className="w-8 h-8 text-red-600" />
-              <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Admin Panel</h2>
+              <div className="w-10 h-10 bg-gradient-to-r from-red-600 to-orange-600 rounded-xl flex items-center justify-center">
+                <Shield className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-gray-900 dark:text-white">Admin Panel</h2>
+                <p className="text-sm text-gray-600 dark:text-gray-400">Manage forum operations</p>
+              </div>
             </div>
             <button
               onClick={onClose}
@@ -417,695 +275,465 @@ export default function AdminPanel({ isOpen, onClose }: AdminPanelProps) {
               <X className="w-5 h-5 text-gray-500 dark:text-gray-400" />
             </button>
           </div>
+        </div>
 
-          {/* Tabs */}
-          <div className="flex space-x-1 mb-6 bg-gray-100 dark:bg-gray-800 p-1 rounded-lg overflow-x-auto">
-            <button
-              onClick={() => setActiveTab('verification')}
-              className={`flex-shrink-0 py-2 px-4 rounded-md font-medium transition-colors ${
-                activeTab === 'verification'
-                  ? 'bg-white dark:bg-gray-700 text-red-600 dark:text-red-400 shadow-sm'
-                  : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
-              }`}
-            >
-              <CheckCircle className="w-4 h-4 inline mr-2" />
-              Verification Requests
-            </button>
-            <button
-              onClick={() => setActiveTab('agent-verification')}
-              className={`flex-shrink-0 py-2 px-4 rounded-md font-medium transition-colors ${
-                activeTab === 'agent-verification'
-                  ? 'bg-white dark:bg-gray-700 text-red-600 dark:text-red-400 shadow-sm'
-                  : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
-              }`}
-            >
-              <Users className="w-4 h-4 inline mr-2" />
-              Agent Verification ({agentRequests.filter(a => a.status === 'pending').length})
-            </button>
-            <button
-              onClick={() => setActiveTab('review-assessments')}
-              className={`flex-shrink-0 py-2 px-4 rounded-md font-medium transition-colors ${
-                activeTab === 'review-assessments'
-                  ? 'bg-white dark:bg-gray-700 text-red-600 dark:text-red-400 shadow-sm'
-                  : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
-              }`}
-            >
-              <Flag className="w-4 h-4 inline mr-2" />
-              Review Assessments ({reviewAssessments.filter(a => a.status === 'pending').length})
-            </button>
-            <button
-              onClick={() => setActiveTab('categories')}
-              className={`flex-shrink-0 py-2 px-4 rounded-md font-medium transition-colors ${
-                activeTab === 'categories'
-                  ? 'bg-white dark:bg-gray-700 text-red-600 dark:text-red-400 shadow-sm'
-                  : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
-              }`}
-            >
-              <Hash className="w-4 h-4 inline mr-2" />
-              Category Manager
-            </button>
-            <button
-              onClick={() => setActiveTab('threads')}
-              className={`flex-shrink-0 py-2 px-4 rounded-md font-medium transition-colors ${
-                activeTab === 'threads'
-                  ? 'bg-white dark:bg-gray-700 text-red-600 dark:text-red-400 shadow-sm'
-                  : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
-              }`}
-            >
-              <MessageSquare className="w-4 h-4 inline mr-2" />
-              Thread Manager
-            </button>
-            <button
-              onClick={() => setActiveTab('posts')}
-              className={`flex-shrink-0 py-2 px-4 rounded-md font-medium transition-colors ${
-                activeTab === 'posts'
-                  ? 'bg-white dark:bg-gray-700 text-red-600 dark:text-red-400 shadow-sm'
-                  : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
-              }`}
-            >
-              <MessageSquare className="w-4 h-4 inline mr-2" />
-              Post Manager
-            </button>
-          </div>
-
-          {/* Verification Requests */}
-          {activeTab === 'verification' && (
-            <div>
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Verification Requests ({verificationRequests.length})</h3>
-              </div>
-
-              <div className="space-y-4">
-                {verificationRequests.length === 0 ? (
-                  <div className="text-center py-12">
-                    <CheckCircle className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                    <p className="text-gray-500 dark:text-gray-400">No verification requests pending</p>
+        {/* Menu Items */}
+        <div className="flex-1 p-4">
+          <nav className="space-y-2">
+            {menuItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = activeSection === item.id;
+              
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveSection(item.id)}
+                  className={`w-full flex items-center justify-between p-3 rounded-lg transition-colors ${
+                    isActive
+                      ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
+                      : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+                  }`}
+                >
+                  <div className="flex items-center space-x-3">
+                    <Icon className="w-5 h-5" />
+                    <span className="font-medium">{item.label}</span>
                   </div>
-                ) : (
-                  verificationRequests.map((request) => (
-                    <div key={request.id} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
-                      <div className="flex items-start justify-between mb-4">
-                        <div className="flex items-center space-x-3">
-                          {request.profiles?.avatar_url ? (
-                            <img
-                              src={request.profiles.avatar_url}
-                              alt={request.profiles.username}
-                              className="w-10 h-10 rounded-full object-cover"
-                            />
-                          ) : (
-                            <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center text-white font-medium">
-                              {request.profiles?.username?.charAt(0).toUpperCase()}
-                            </div>
-                          )}
-                          <div>
-                            <h4 className="font-medium text-gray-900 dark:text-white">{request.profiles?.username}</h4>
-                            <p className="text-sm text-gray-500 dark:text-gray-400">
-                              Submitted {new Date(request.created_at).toLocaleDateString()}
-                            </p>
-                          </div>
-                        </div>
-                        <span className={`px-3 py-1 text-xs font-medium rounded-full ${
-                          request.status === 'pending' 
-                            ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-400'
-                            : request.status === 'approved'
-                            ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400'
-                            : 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-400'
-                        }`}>
-                          {request.status.charAt(0).toUpperCase() + request.status.slice(1)}
-                        </span>
-                      </div>
+                  {item.count > 0 && (
+                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                      isActive
+                        ? 'bg-red-200 dark:bg-red-800 text-red-800 dark:text-red-200'
+                        : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                    }`}>
+                      {item.count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+      </div>
 
-                      <div className="mb-4">
-                        <h5 className="font-medium text-gray-900 dark:text-white mb-2">Request Details:</h5>
-                        <p className="text-gray-700 dark:text-gray-300 text-sm leading-relaxed">{request.content}</p>
-                      </div>
-
-                      {request.images && request.images.length > 0 && (
-                        <div className="mb-4">
-                          <h5 className="font-medium text-gray-900 dark:text-white mb-2">Supporting Images:</h5>
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                            {request.images.map((imageUrl: string, index: number) => (
-                              <img
-                                key={index}
-                                src={imageUrl}
-                                alt={`Verification image ${index + 1}`}
-                                className="w-full h-32 object-cover rounded-lg border border-gray-200 dark:border-gray-700"
-                                onError={(e) => {
-                                  e.currentTarget.style.display = 'none';
-                                }}
-                              />
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {request.admin_notes && (
-                        <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                          <h5 className="font-medium text-gray-900 dark:text-white mb-1">Admin Notes:</h5>
-                          <p className="text-gray-700 dark:text-gray-300 text-sm">{request.admin_notes}</p>
-                        </div>
-                      )}
-
-                      {request.status === 'pending' && (
-                        <div className="flex items-center space-x-3">
-                          <button
-                            onClick={() => {
-                              const notes = prompt('Add admin notes (optional):');
-                              handleVerificationRequest(request.id, 'approved', notes || undefined);
-                            }}
-                            className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                          >
-                            <CheckCircle className="w-4 h-4" />
-                            <span>Approve</span>
-                          </button>
-                          <button
-                            onClick={() => {
-                              const notes = prompt('Add admin notes (optional):');
-                              handleVerificationRequest(request.id, 'rejected', notes || undefined);
-                            }}
-                            className="flex items-center space-x-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-                          >
-                            <XCircle className="w-4 h-4" />
-                            <span>Reject</span>
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  ))
-                )}
-              </div>
+      {/* Main Content */}
+      <div className="flex-1 bg-gray-50 dark:bg-gray-800 overflow-hidden flex flex-col">
+        <div className="flex-1 overflow-y-auto p-6">
+          {loading ? (
+            <div className="flex items-center justify-center h-64">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-600"></div>
             </div>
-          )}
-
-          {/* Agent Verification */}
-          {activeTab === 'agent-verification' && (
-            <div>
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Agent Verification ({agentRequests.length})</h3>
-              </div>
-
-              <div className="space-y-4">
-                {agentRequests.length === 0 ? (
-                  <div className="text-center py-12">
-                    <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                    <p className="text-gray-500 dark:text-gray-400">No agent requests</p>
-                  </div>
-                ) : (
-                  agentRequests.map((agent) => (
-                    <div key={agent.id} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
-                      <div className="flex items-start justify-between mb-4">
-                        <div className="flex items-center space-x-3">
-                          {agent.profiles?.avatar_url ? (
-                            <img
-                              src={agent.profiles.avatar_url}
-                              alt={agent.profiles.username}
-                              className="w-10 h-10 rounded-full object-cover"
-                            />
-                          ) : (
-                            <div className="w-10 h-10 bg-gradient-to-r from-pink-500 to-purple-500 rounded-full flex items-center justify-center text-white font-medium">
-                              {agent.profiles?.username?.charAt(0).toUpperCase()}
-                            </div>
-                          )}
-                          <div>
-                            <h4 className="font-medium text-gray-900 dark:text-white">{agent.profiles?.username}</h4>
-                            <p className="text-sm text-gray-500 dark:text-gray-400">
-                              Submitted {new Date(agent.created_at).toLocaleDateString()}
-                            </p>
-                          </div>
-                        </div>
-                        <span className={`px-3 py-1 text-xs font-medium rounded-full ${
-                          agent.status === 'pending' 
-                            ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-400'
-                            : agent.status === 'approved'
-                            ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400'
-                            : 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-400'
-                        }`}>
-                          {agent.status.charAt(0).toUpperCase() + agent.status.slice(1)}
-                        </span>
+          ) : (
+            <>
+              {/* Verification Requests */}
+              {activeSection === 'verification-requests' && (
+                <div>
+                  <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">
+                    Verification Requests ({verificationRequests.filter(r => r.status === 'pending').length} pending)
+                  </h3>
+                  
+                  <div className="space-y-4">
+                    {verificationRequests.length === 0 ? (
+                      <div className="text-center py-12">
+                        <UserCheck className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                        <p className="text-gray-500 dark:text-gray-400">No verification requests</p>
                       </div>
-
-                      {/* Agent Details */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
-                        <div>
-                          <h5 className="font-medium text-gray-900 dark:text-white mb-2">Physical Stats</h5>
-                          <div className="space-y-1 text-sm">
-                            <div>Height: {agent.height || '—'}</div>
-                            <div>Weight: {agent.weight || '—'}</div>
-                            <div>Location: {agent.current_location || '—'}</div>
-                          </div>
-                        </div>
-                        <div>
-                          <h5 className="font-medium text-gray-900 dark:text-white mb-2">Pricing</h5>
-                          <div className="space-y-1 text-sm">
-                            <div>Short: {agent.pricing_short_time || '—'}</div>
-                            <div>Long: {agent.pricing_long_time || '—'}</div>
-                            <div>Overnight: {agent.pricing_overnight || '—'}</div>
-                            <div>Private: {agent.pricing_private || '—'}</div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {agent.services && agent.services.length > 0 && (
-                        <div className="mb-4">
-                          <h5 className="font-medium text-gray-900 dark:text-white mb-2">Services:</h5>
-                          <div className="flex flex-wrap gap-2">
-                            {agent.services.map((service: string, index: number) => (
-                              <span
-                                key={index}
-                                className="px-2 py-1 bg-pink-100 dark:bg-pink-900/30 text-pink-800 dark:text-pink-300 text-sm rounded-full"
-                              >
-                                {service}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {agent.description && (
-                        <div className="mb-4">
-                          <h5 className="font-medium text-gray-900 dark:text-white mb-2">Description:</h5>
-                          <p className="text-gray-700 dark:text-gray-300 text-sm leading-relaxed">{agent.description}</p>
-                        </div>
-                      )}
-
-                      {agent.profile_picture && (
-                        <div className="mb-4">
-                          <h5 className="font-medium text-gray-900 dark:text-white mb-2">Profile Picture:</h5>
-                          <img
-                            src={agent.profile_picture}
-                            alt="Agent profile"
-                            className="w-32 h-32 object-cover rounded-lg border border-gray-200 dark:border-gray-700"
-                            onError={(e) => {
-                              e.currentTarget.style.display = 'none';
-                            }}
-                          />
-                        </div>
-                      )}
-
-                      {agent.admin_notes && (
-                        <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                          <h5 className="font-medium text-gray-900 dark:text-white mb-1">Admin Notes:</h5>
-                          <p className="text-gray-700 dark:text-gray-300 text-sm">{agent.admin_notes}</p>
-                        </div>
-                      )}
-
-                      {agent.status === 'pending' && (
-                        <div className="flex items-center space-x-3">
-                          <button
-                            onClick={() => {
-                              const notes = prompt('Add admin notes (optional):');
-                              handleAgentRequest(agent.id, 'approved', notes || undefined);
-                            }}
-                            className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                          >
-                            <CheckCircle className="w-4 h-4" />
-                            <span>Approve</span>
-                          </button>
-                          <button
-                            onClick={() => {
-                              const notes = prompt('Add admin notes (optional):');
-                              handleAgentRequest(agent.id, 'rejected', notes || undefined);
-                            }}
-                            className="flex items-center space-x-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-                          >
-                            <XCircle className="w-4 h-4" />
-                            <span>Reject</span>
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Review Assessments */}
-          {activeTab === 'review-assessments' && (
-            <div>
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Review Assessments ({reviewAssessments.length})</h3>
-              </div>
-
-              <div className="space-y-4">
-                {reviewAssessments.length === 0 ? (
-                  <div className="text-center py-12">
-                    <Flag className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                    <p className="text-gray-500 dark:text-gray-400">No review assessments pending</p>
-                  </div>
-                ) : (
-                  reviewAssessments.map((assessment) => (
-                    <div key={assessment.id} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
-                      <div className="flex items-start justify-between mb-4">
-                        <div className="flex items-center space-x-3">
-                          {assessment.profiles?.avatar_url ? (
-                            <img
-                              src={assessment.profiles.avatar_url}
-                              alt={assessment.profiles.username}
-                              className="w-10 h-10 rounded-full object-cover"
-                            />
-                          ) : (
-                            <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center text-white font-medium">
-                              {assessment.profiles?.username?.charAt(0).toUpperCase()}
-                            </div>
-                          )}
-                          <div>
-                            <h4 className="font-medium text-gray-900 dark:text-white">{assessment.profiles?.username}</h4>
-                            <p className="text-sm text-gray-500 dark:text-gray-400">
-                              Submitted {new Date(assessment.created_at).toLocaleDateString()}
-                            </p>
-                          </div>
-                        </div>
-                        <span className={`px-3 py-1 text-xs font-medium rounded-full ${
-                          assessment.status === 'pending' 
-                            ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-400'
-                            : assessment.status === 'approved'
-                            ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400'
-                            : 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-400'
-                        }`}>
-                          {assessment.status.charAt(0).toUpperCase() + assessment.status.slice(1)}
-                        </span>
-                      </div>
-
-                      {/* Review Details */}
-                      <div className="mb-4 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                        <h5 className="font-medium text-gray-900 dark:text-white mb-3">Review Being Assessed:</h5>
-                        <div className="flex items-start justify-between mb-3">
-                          <div className="flex items-center space-x-3">
-                            {assessment.deal_reviews?.reviewer?.avatar_url ? (
-                              <img
-                                src={assessment.deal_reviews.reviewer.avatar_url}
-                                alt={assessment.deal_reviews.reviewer.username}
-                                className="w-8 h-8 rounded-full object-cover"
-                              />
-                            ) : (
-                              <div className="w-8 h-8 bg-gradient-to-r from-green-500 to-blue-500 rounded-full flex items-center justify-center text-white text-sm font-medium">
-                                {assessment.deal_reviews?.reviewer?.username?.charAt(0).toUpperCase()}
+                    ) : (
+                      verificationRequests.map((request) => (
+                        <div key={request.id} className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
+                          <div className="flex items-start justify-between mb-4">
+                            <div className="flex items-center space-x-3">
+                              {request.profiles?.avatar_url ? (
+                                <img
+                                  src={request.profiles.avatar_url}
+                                  alt={request.profiles.username}
+                                  className="w-10 h-10 rounded-full object-cover"
+                                />
+                              ) : (
+                                <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center text-white font-medium">
+                                  {request.profiles?.username?.charAt(0).toUpperCase()}
+                                </div>
+                              )}
+                              <div>
+                                <h4 className="font-medium text-gray-900 dark:text-white">{request.profiles?.username}</h4>
+                                <p className="text-sm text-gray-500 dark:text-gray-400">
+                                  Submitted {new Date(request.created_at).toLocaleDateString()}
+                                </p>
                               </div>
-                            )}
-                            <div>
-                              <p className="text-sm font-medium text-gray-900 dark:text-white">
-                                {assessment.deal_reviews?.reviewer?.username} → {assessment.deal_reviews?.reviewee?.username}
-                              </p>
-                              <p className="text-xs text-gray-500 dark:text-gray-400">
-                                Deal: {assessment.deal_reviews?.deal?.title}
-                              </p>
                             </div>
-                          </div>
-                          <div className="flex items-center space-x-2">
-                            {renderStars(assessment.deal_reviews?.rating || 0)}
-                            <span className="text-sm text-gray-600 dark:text-gray-400">
-                              {assessment.deal_reviews?.rating}/5
+                            <span className={`px-3 py-1 text-xs font-medium rounded-full ${
+                              request.status === 'pending' 
+                                ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-400'
+                                : request.status === 'approved'
+                                ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400'
+                                : 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-400'
+                            }`}>
+                              {request.status.charAt(0).toUpperCase() + request.status.slice(1)}
                             </span>
                           </div>
+
+                          <div className="mb-4">
+                            <h5 className="font-medium text-gray-900 dark:text-white mb-2">Request Details:</h5>
+                            <p className="text-gray-700 dark:text-gray-300 text-sm leading-relaxed">{request.content}</p>
+                          </div>
+
+                          {request.images && request.images.length > 0 && (
+                            <div className="mb-4">
+                              <h5 className="font-medium text-gray-900 dark:text-white mb-2">Supporting Images:</h5>
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                {request.images.map((imageUrl: string, index: number) => (
+                                  <img
+                                    key={index}
+                                    src={imageUrl}
+                                    alt={`Verification image ${index + 1}`}
+                                    className="w-full h-32 object-cover rounded border border-gray-200 dark:border-gray-700"
+                                    onError={(e) => {
+                                      e.currentTarget.style.display = 'none';
+                                    }}
+                                  />
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {request.admin_notes && (
+                            <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                              <h5 className="font-medium text-gray-900 dark:text-white mb-1">Admin Notes:</h5>
+                              <p className="text-gray-700 dark:text-gray-300 text-sm">{request.admin_notes}</p>
+                            </div>
+                          )}
+
+                          {request.status === 'pending' && (
+                            <div className="flex items-center space-x-3">
+                              <button
+                                onClick={() => {
+                                  const notes = prompt('Add admin notes (optional):');
+                                  handleVerificationRequest(request.id, 'approved', notes || undefined);
+                                }}
+                                className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                              >
+                                <CheckCircle className="w-4 h-4" />
+                                <span>Approve</span>
+                              </button>
+                              <button
+                                onClick={() => {
+                                  const notes = prompt('Add admin notes (optional):');
+                                  handleVerificationRequest(request.id, 'rejected', notes || undefined);
+                                }}
+                                className="flex items-center space-x-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                              >
+                                <XCircle className="w-4 h-4" />
+                                <span>Reject</span>
+                              </button>
+                            </div>
+                          )}
                         </div>
-                        <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
-                          {assessment.deal_reviews?.review_text}
-                        </p>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Review Assessments */}
+              {activeSection === 'review-assessments' && (
+                <div>
+                  <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">
+                    Review Assessments ({reviewAssessments.filter(a => a.status === 'pending').length} pending)
+                  </h3>
+                  
+                  <div className="space-y-4">
+                    {reviewAssessments.length === 0 ? (
+                      <div className="text-center py-12">
+                        <AlertTriangle className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                        <p className="text-gray-500 dark:text-gray-400">No review assessments</p>
                       </div>
+                    ) : (
+                      reviewAssessments.map((assessment) => (
+                        <div key={assessment.id} className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
+                          <div className="flex items-start justify-between mb-4">
+                            <div className="flex items-center space-x-3">
+                              {assessment.profiles?.avatar_url ? (
+                                <img
+                                  src={assessment.profiles.avatar_url}
+                                  alt={assessment.profiles.username}
+                                  className="w-10 h-10 rounded-full object-cover"
+                                />
+                              ) : (
+                                <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center text-white font-medium">
+                                  {assessment.profiles?.username?.charAt(0).toUpperCase()}
+                                </div>
+                              )}
+                              <div>
+                                <h4 className="font-medium text-gray-900 dark:text-white">{assessment.profiles?.username}</h4>
+                                <p className="text-sm text-gray-500 dark:text-gray-400">
+                                  Submitted {new Date(assessment.created_at).toLocaleDateString()}
+                                </p>
+                              </div>
+                            </div>
+                            <span className={`px-3 py-1 text-xs font-medium rounded-full ${
+                              assessment.status === 'pending' 
+                                ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-400'
+                                : assessment.status === 'approved'
+                                ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400'
+                                : 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-400'
+                            }`}>
+                              {assessment.status.charAt(0).toUpperCase() + assessment.status.slice(1)}
+                            </span>
+                          </div>
 
-                      {assessment.reason && (
-                        <div className="mb-4">
-                          <h5 className="font-medium text-gray-900 dark:text-white mb-2">Assessment Reason:</h5>
-                          <p className="text-gray-700 dark:text-gray-300 text-sm leading-relaxed">{assessment.reason}</p>
+                          {/* Review Being Assessed */}
+                          {assessment.deal_reviews && (
+                            <div className="mb-4 p-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
+                              <h5 className="font-medium text-yellow-900 dark:text-yellow-300 mb-2">Review Under Assessment:</h5>
+                              <div className="flex items-center space-x-2 mb-2">
+                                <span className="text-sm text-yellow-700 dark:text-yellow-400">
+                                  From: {assessment.deal_reviews.reviewer?.username}
+                                </span>
+                                <span className="text-sm text-yellow-700 dark:text-yellow-400">
+                                  Rating: {assessment.deal_reviews.rating}/5 stars
+                                </span>
+                              </div>
+                              <p className="text-sm text-yellow-700 dark:text-yellow-400">
+                                "{assessment.deal_reviews.review_text}"
+                              </p>
+                              {assessment.deal_reviews.deal && (
+                                <p className="text-xs text-yellow-600 dark:text-yellow-500 mt-1">
+                                  Deal: {assessment.deal_reviews.deal.title}
+                                </p>
+                              )}
+                            </div>
+                          )}
+
+                          {assessment.reason && (
+                            <div className="mb-4">
+                              <h5 className="font-medium text-gray-900 dark:text-white mb-2">Assessment Reason:</h5>
+                              <p className="text-gray-700 dark:text-gray-300 text-sm leading-relaxed">{assessment.reason}</p>
+                            </div>
+                          )}
+
+                          {assessment.admin_notes && (
+                            <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                              <h5 className="font-medium text-gray-900 dark:text-white mb-1">Admin Notes:</h5>
+                              <p className="text-gray-700 dark:text-gray-300 text-sm">{assessment.admin_notes}</p>
+                            </div>
+                          )}
+
+                          {assessment.status === 'pending' && (
+                            <div className="flex items-center space-x-3">
+                              <button
+                                onClick={() => {
+                                  const notes = prompt('Add admin notes (optional):');
+                                  handleReviewAssessment(assessment.id, 'approved', notes || undefined);
+                                }}
+                                className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                              >
+                                <CheckCircle className="w-4 h-4" />
+                                <span>Approve & Delete Review</span>
+                              </button>
+                              <button
+                                onClick={() => {
+                                  const notes = prompt('Add admin notes (optional):');
+                                  handleReviewAssessment(assessment.id, 'rejected', notes || undefined);
+                                }}
+                                className="flex items-center space-x-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                              >
+                                <XCircle className="w-4 h-4" />
+                                <span>Reject Assessment</span>
+                              </button>
+                            </div>
+                          )}
                         </div>
-                      )}
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
 
-                      {assessment.admin_notes && (
-                        <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                          <h5 className="font-medium text-gray-900 dark:text-white mb-1">Admin Notes:</h5>
-                          <p className="text-gray-700 dark:text-gray-300 text-sm">{assessment.admin_notes}</p>
-                        </div>
-                      )}
+              {/* User Manager */}
+              {activeSection === 'user-manager' && (
+                <div>
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="text-2xl font-bold text-gray-900 dark:text-white">
+                      User Manager ({filteredUsers.length} users)
+                    </h3>
+                  </div>
 
-                      {assessment.status === 'pending' && (
-                        <div className="flex items-center space-x-3">
-                          <button
-                            onClick={() => {
-                              const notes = prompt('Add admin notes (optional):');
-                              handleReviewAssessment(assessment.id, 'approved', notes || undefined);
-                            }}
-                            className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                          >
-                            <CheckCircle className="w-4 h-4" />
-                            <span>Approve & Delete Review</span>
-                          </button>
-                          <button
-                            onClick={() => {
-                              const notes = prompt('Add admin notes (optional):');
-                              handleReviewAssessment(assessment.id, 'rejected', notes || undefined);
-                            }}
-                            className="flex items-center space-x-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-                          >
-                            <XCircle className="w-4 h-4" />
-                            <span>Reject Assessment</span>
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Category Management */}
-          {activeTab === 'categories' && (
-            <div>
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Manage Categories ({categories.length})</h3>
-              </div>
-
-              {/* Category Form */}
-              <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 mb-6">
-                <h4 className="font-medium text-gray-900 dark:text-white mb-4">
-                  {editingCategory ? 'Edit Category' : 'Create New Category'}
-                </h4>
-                <form onSubmit={handleCategorySubmit} className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name</label>
+                  {/* Search and Filter */}
+                  <div className="flex flex-col sm:flex-row gap-4 mb-6">
+                    <div className="relative flex-1">
+                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-gray-500 w-5 h-5" />
                       <input
                         type="text"
-                        value={categoryForm.name}
-                        onChange={(e) => setCategoryForm({ ...categoryForm, name: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-red-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                        required
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        placeholder="Search users by username, bio, or title..."
+                        className="w-full pl-12 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
                       />
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Color</label>
-                      <input
-                        type="color"
-                        value={categoryForm.color}
-                        onChange={(e) => setCategoryForm({ ...categoryForm, color: e.target.value })}
-                        className="w-full h-10 border border-gray-300 dark:border-gray-600 rounded-md"
-                      />
-                    </div>
-                    <div className="flex items-end space-x-2">
-                      <button
-                        type="submit"
-                        className="flex-1 bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 transition-colors flex items-center justify-center space-x-2"
+                    <div className="relative">
+                      <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-gray-500 w-5 h-5" />
+                      <select
+                        value={userFilter}
+                        onChange={(e) => setUserFilter(e.target.value)}
+                        className="pl-12 pr-8 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white min-w-48"
                       >
-                        <Save className="w-4 h-4" />
-                        <span>{editingCategory ? 'Update' : 'Create'}</span>
-                      </button>
-                      {editingCategory && (
-                        <button
-                          type="button"
-                          onClick={cancelEdit}
-                          className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                        >
-                          Cancel
-                        </button>
-                      )}
+                        <option value="all">All Users</option>
+                        <option value="regular">Regular Users</option>
+                        <option value="verified">Verified Users</option>
+                        <option value="admin">Admins</option>
+                        <option value="owner">Owners</option>
+                        <option value="banned">Banned Users</option>
+                      </select>
                     </div>
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
-                    <textarea
-                      value={categoryForm.description}
-                      onChange={(e) => setCategoryForm({ ...categoryForm, description: e.target.value })}
-                      rows={2}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-red-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                    />
+
+                  {/* Users List */}
+                  <div className="space-y-4">
+                    {filteredUsers.length === 0 ? (
+                      <div className="text-center py-12">
+                        <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                        <p className="text-gray-500 dark:text-gray-400">
+                          {searchTerm || userFilter !== 'all' ? 'No users match your filters' : 'No users found'}
+                        </p>
+                      </div>
+                    ) : (
+                      filteredUsers.map((user) => (
+                        <div key={user.id} className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
+                          <div className="flex items-start justify-between">
+                            <div className="flex items-center space-x-4 flex-1">
+                              <UserBadge profile={user} size="md" showLevel={false} clickable={false} />
+                              <div className="flex-1">
+                                <div className="flex items-center space-x-2 mb-1">
+                                  <span className="text-sm text-gray-600 dark:text-gray-400">
+                                    {user.post_count} posts • {user.reputation} reputation
+                                  </span>
+                                </div>
+                                {user.bio && (
+                                  <p className="text-sm text-gray-700 dark:text-gray-300 line-clamp-2 mb-2">
+                                    {user.bio}
+                                  </p>
+                                )}
+                                {user.honorable_title && (
+                                  <div className="flex items-center space-x-2 mb-2">
+                                    <Award className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                                    <span className="text-sm text-purple-600 dark:text-purple-400 font-medium italic">
+                                      {user.honorable_title}
+                                    </span>
+                                  </div>
+                                )}
+                                <div className="text-xs text-gray-500 dark:text-gray-400">
+                                  Joined {new Date(user.created_at).toLocaleDateString()}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* User Actions Menu */}
+                            <div className="relative">
+                              <button
+                                onClick={() => setShowUserMenu(showUserMenu === user.id ? null : user.id)}
+                                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
+                              >
+                                <MoreVertical className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                              </button>
+
+                              {showUserMenu === user.id && (
+                                <div className="absolute right-0 top-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-10 min-w-48">
+                                  {/* Verification Actions */}
+                                  {!user.is_verified ? (
+                                    <button
+                                      onClick={() => handleUserAction(user.id, 'verify')}
+                                      className="w-full px-4 py-2 text-left text-sm text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 flex items-center space-x-2 first:rounded-t-lg"
+                                    >
+                                      <CheckCircle className="w-4 h-4" />
+                                      <span>Verify User</span>
+                                    </button>
+                                  ) : (
+                                    <button
+                                      onClick={() => handleUserAction(user.id, 'unverify')}
+                                      className="w-full px-4 py-2 text-left text-sm text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20 flex items-center space-x-2"
+                                    >
+                                      <XCircle className="w-4 h-4" />
+                                      <span>Remove Verification</span>
+                                    </button>
+                                  )}
+
+                                  {/* Admin Actions */}
+                                  {!user.is_admin && !user.is_owner && (
+                                    <button
+                                      onClick={() => handleUserAction(user.id, 'make-admin')}
+                                      className="w-full px-4 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center space-x-2"
+                                    >
+                                      <Shield className="w-4 h-4" />
+                                      <span>Make Admin</span>
+                                    </button>
+                                  )}
+
+                                  {user.is_admin && !user.is_owner && (
+                                    <button
+                                      onClick={() => handleUserAction(user.id, 'remove-admin')}
+                                      className="w-full px-4 py-2 text-left text-sm text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20 flex items-center space-x-2"
+                                    >
+                                      <XCircle className="w-4 h-4" />
+                                      <span>Remove Admin</span>
+                                    </button>
+                                  )}
+
+                                  {/* Honorable Title */}
+                                  <button
+                                    onClick={() => {
+                                      const title = prompt('Enter honorable title (leave empty to remove):', user.honorable_title || '');
+                                      if (title !== null) {
+                                        handleUserAction(user.id, 'set-title', title.trim() || null);
+                                      }
+                                    }}
+                                    className="w-full px-4 py-2 text-left text-sm text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20 flex items-center space-x-2"
+                                  >
+                                    <Award className="w-4 h-4" />
+                                    <span>Set Honorable Title</span>
+                                  </button>
+
+                                  {/* Ban Actions */}
+                                  {!user.is_banned && !user.is_owner ? (
+                                    <button
+                                      onClick={() => {
+                                        if (confirm(`Are you sure you want to ban ${user.username}?`)) {
+                                          handleUserAction(user.id, 'ban');
+                                        }
+                                      }}
+                                      className="w-full px-4 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center space-x-2 last:rounded-b-lg"
+                                    >
+                                      <Ban className="w-4 h-4" />
+                                      <span>Ban User</span>
+                                    </button>
+                                  ) : user.is_banned ? (
+                                    <button
+                                      onClick={() => handleUserAction(user.id, 'unban')}
+                                      className="w-full px-4 py-2 text-left text-sm text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 flex items-center space-x-2 last:rounded-b-lg"
+                                    >
+                                      <CheckCircle className="w-4 h-4" />
+                                      <span>Unban User</span>
+                                    </button>
+                                  ) : null}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
                   </div>
-                </form>
-              </div>
-
-              {/* Categories List */}
-              <div className="space-y-3">
-                {categories.map((category, index) => (
-                  <div key={category.id} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-3">
-                        <div
-                          className="w-6 h-6 rounded-full"
-                          style={{ backgroundColor: category.color }}
-                        ></div>
-                        <div>
-                          <h4 className="font-medium text-gray-900 dark:text-white">{category.name}</h4>
-                          <p className="text-sm text-gray-600 dark:text-gray-400">{category.description}</p>
-                          <p className="text-xs text-gray-500 dark:text-gray-500">
-                            {threads.filter(t => t.category_id === category.id).length} threads
-                          </p>
-                        </div>
-                      </div>
-                      
-                      <div className="flex items-center space-x-2">
-                        {/* Sort Controls */}
-                        <div className="flex flex-col">
-                          <button
-                            onClick={() => moveCategoryUp(category.id, category.sort_order)}
-                            disabled={index === 0}
-                            className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 disabled:opacity-30 disabled:cursor-not-allowed"
-                            title="Move up"
-                          >
-                            <ChevronUp className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => moveCategoryDown(category.id, category.sort_order)}
-                            disabled={index === categories.length - 1}
-                            className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 disabled:opacity-30 disabled:cursor-not-allowed"
-                            title="Move down"
-                          >
-                            <ChevronDown className="w-4 h-4" />
-                          </button>
-                        </div>
-                        
-                        <button
-                          onClick={() => editCategory(category)}
-                          className="p-2 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
-                          title="Edit category"
-                        >
-                          <Edit className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => deleteCategory(category.id)}
-                          className="p-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
-                          title="Delete category"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Thread Management */}
-          {activeTab === 'threads' && (
-            <div>
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Manage Threads ({threads.length})</h3>
-              </div>
-
-              <div className="space-y-3">
-                {threads.map((thread) => (
-                  <div key={thread.id} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center space-x-2 mb-2">
-                          {thread.is_pinned && <Pin className="w-4 h-4 text-yellow-600 dark:text-yellow-400" />}
-                          {thread.is_locked && <Lock className="w-4 h-4 text-red-600 dark:text-red-400" />}
-                          <span
-                            className="px-2 py-1 text-xs font-medium rounded-full"
-                            style={{
-                              backgroundColor: thread.categories?.color + '20',
-                              color: thread.categories?.color,
-                            }}
-                          >
-                            {thread.categories?.name}
-                          </span>
-                        </div>
-                        <h4 className="font-medium text-gray-900 dark:text-white mb-1">{thread.title}</h4>
-                        <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2 mb-2">{thread.content}</p>
-                        <div className="flex items-center space-x-4 text-xs text-gray-500 dark:text-gray-500">
-                          <span>By {thread.profiles?.username}</span>
-                          <span>{thread.views} views</span>
-                          <span>{new Date(thread.created_at).toLocaleDateString()}</span>
-                        </div>
-                      </div>
-                      <div className="flex items-center space-x-2 ml-4">
-                        <button
-                          onClick={() => toggleThreadPin(thread.id, thread.is_pinned)}
-                          className={`p-2 rounded-lg transition-colors ${
-                            thread.is_pinned
-                              ? 'text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-900/20'
-                              : 'text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'
-                          }`}
-                          title={thread.is_pinned ? 'Unpin thread' : 'Pin thread'}
-                        >
-                          <Pin className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => toggleThreadLock(thread.id, thread.is_locked)}
-                          className={`p-2 rounded-lg transition-colors ${
-                            thread.is_locked
-                              ? 'text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20'
-                              : 'text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'
-                          }`}
-                          title={thread.is_locked ? 'Unlock thread' : 'Lock thread'}
-                        >
-                          {thread.is_locked ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
-                        </button>
-                        <button
-                          onClick={() => deleteThread(thread.id)}
-                          className="p-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
-                          title="Delete thread"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Post Management */}
-          {activeTab === 'posts' && (
-            <div>
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Manage Posts ({posts.length})</h3>
-              </div>
-
-              <div className="space-y-3">
-                {posts.map((post) => (
-                  <div key={post.id} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center space-x-2 mb-2">
-                          <UserBadge profile={post.profiles} size="sm" showLevel={false} />
-                          <span className="text-xs text-gray-500 dark:text-gray-500">
-                            in thread: {post.threads?.title}
-                          </span>
-                        </div>
-                        <p className="text-sm text-gray-700 dark:text-gray-300 mb-2 line-clamp-3">{post.content}</p>
-                        <div className="text-xs text-gray-500 dark:text-gray-500">
-                          {new Date(post.created_at).toLocaleDateString()}
-                        </div>
-                      </div>
-                      <div className="flex items-center space-x-2 ml-4">
-                        <button
-                          onClick={() => deletePost(post.id)}
-                          className="p-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
-                          title="Delete post"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
+
+      {/* Click overlay to close user menu */}
+      {showUserMenu && (
+        <div
+          className="fixed inset-0 z-5"
+          onClick={() => setShowUserMenu(null)}
+        />
+      )}
     </div>
   );
 }
