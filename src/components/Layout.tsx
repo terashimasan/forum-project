@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { User, Crown, Shield, LogOut, Home, Settings, Handshake, Users } from 'lucide-react';
+import { User, Crown, Shield, LogOut, Home, Settings, Handshake, Users, Bell, MessageSquare, ChevronDown } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 interface LayoutProps {
@@ -23,6 +23,8 @@ export default function Layout({
   onLogout
 }: LayoutProps) {
   const location = useLocation();
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const profileMenuRef = useRef<HTMLDivElement>(null);
   const isAdminPage = location.pathname === '/admin';
   const isOwnerPage = location.pathname === '/owner';
   const isDealsPage = location.pathname === '/deals';
@@ -35,6 +37,22 @@ export default function Layout({
   useEffect(() => {
     fetchSiteSettings();
   }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (profileMenuRef.current && !profileMenuRef.current.contains(event.target as Node)) {
+        setShowProfileMenu(false);
+      }
+    };
+
+    if (showProfileMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showProfileMenu]);
 
   const fetchSiteSettings = async () => {
     try {
@@ -58,9 +76,19 @@ export default function Layout({
   };
 
   const handleLogoutClick = async () => {
+    setShowProfileMenu(false);
     if (onLogout) {
       await onLogout();
     }
+  };
+
+  const handleProfileMenuClick = () => {
+    setShowProfileMenu(!showProfileMenu);
+  };
+
+  const handleMenuItemClick = (action: () => void) => {
+    setShowProfileMenu(false);
+    action();
   };
 
   // Check if user has admin access (either admin or owner)
@@ -164,18 +192,9 @@ export default function Layout({
             </div>
 
             <div className="flex items-center space-x-4">
-              {/* Settings Button */}
-              <button
-                onClick={onSettingsClick}
-                className="p-2 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
-                title="Settings"
-              >
-                <Settings className="w-5 h-5" />
-              </button>
-
               {user && profile ? (
                 <div className="flex items-center space-x-3">
-                  {/* Mobile Agent Link */}
+                  {/* Mobile Navigation Links */}
                   <Link
                     to="/agents"
                     className={`md:hidden flex items-center space-x-2 px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
@@ -188,7 +207,6 @@ export default function Layout({
                     <span>Agents</span>
                   </Link>
 
-                  {/* Mobile Deals Link */}
                   <Link
                     to="/deals"
                     className={`md:hidden flex items-center space-x-2 px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
@@ -201,7 +219,6 @@ export default function Layout({
                     <span>Deals</span>
                   </Link>
 
-                  {/* Mobile Admin Link */}
                   {hasAdminAccess && (
                     <Link
                       to="/admin"
@@ -216,7 +233,6 @@ export default function Layout({
                     </Link>
                   )}
 
-                  {/* Mobile Owner Link */}
                   {profile.is_owner && (
                     <Link
                       to="/owner"
@@ -231,39 +247,143 @@ export default function Layout({
                     </Link>
                   )}
                   
-                  <button
-                    onClick={onProfileClick}
-                    className="flex items-center space-x-3 px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg transition-colors"
-                  >
-                    {profile.avatar_url ? (
-                      <img
-                        src={profile.avatar_url}
-                        alt={profile.username}
-                        className="w-8 h-8 rounded-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center">
-                        <User className="w-4 h-4 text-white" />
+                  {/* Google-style Profile Menu */}
+                  <div className="relative" ref={profileMenuRef}>
+                    <button
+                      onClick={handleProfileMenuClick}
+                      className="flex items-center space-x-2 p-2 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-full transition-colors group"
+                    >
+                      {profile.avatar_url ? (
+                        <img
+                          src={profile.avatar_url}
+                          alt={profile.username}
+                          className="w-8 h-8 rounded-full object-cover ring-2 ring-transparent group-hover:ring-blue-200 dark:group-hover:ring-blue-800 transition-all"
+                        />
+                      ) : (
+                        <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center ring-2 ring-transparent group-hover:ring-blue-200 dark:group-hover:ring-blue-800 transition-all">
+                          <User className="w-4 h-4 text-white" />
+                        </div>
+                      )}
+                      <ChevronDown className={`w-4 h-4 text-gray-500 dark:text-gray-400 transition-transform duration-200 ${showProfileMenu ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {/* Profile Dropdown Menu */}
+                    {showProfileMenu && (
+                      <div className="absolute right-0 top-full mt-2 w-80 bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden animate-in slide-in-from-top-2 duration-200">
+                        {/* Profile Header */}
+                        <div className="p-6 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 border-b border-gray-200 dark:border-gray-700">
+                          <div className="flex items-center space-x-4">
+                            {profile.avatar_url ? (
+                              <img
+                                src={profile.avatar_url}
+                                alt={profile.username}
+                                className="w-16 h-16 rounded-full object-cover shadow-lg"
+                              />
+                            ) : (
+                              <div className="w-16 h-16 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center shadow-lg">
+                                <User className="w-8 h-8 text-white" />
+                              </div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center space-x-2">
+                                <h3 className="text-lg font-semibold text-gray-900 dark:text-white truncate">
+                                  {profile.username}
+                                </h3>
+                                {profile.is_verified && (
+                                  <span className="text-blue-500" title="Verified">✓</span>
+                                )}
+                                {profile.is_admin && (
+                                  <span className="text-red-500" title="Admin">👑</span>
+                                )}
+                                {profile.is_owner && (
+                                  <span className="text-purple-500" title="Owner">💎</span>
+                                )}
+                              </div>
+                              <p className="text-sm text-gray-600 dark:text-gray-400">
+                                {profile.post_count} posts • {profile.reputation} reputation
+                              </p>
+                              {profile.bio && (
+                                <p className="text-xs text-gray-500 dark:text-gray-500 mt-1 line-clamp-2">
+                                  {profile.bio}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Menu Items */}
+                        <div className="py-2">
+                          <button
+                            onClick={() => handleMenuItemClick(onProfileClick || (() => {}))}
+                            className="w-full flex items-center space-x-3 px-6 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                          >
+                            <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center">
+                              <User className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                            </div>
+                            <div>
+                              <div className="font-medium text-gray-900 dark:text-white">Profile</div>
+                              <div className="text-sm text-gray-500 dark:text-gray-400">View and edit your profile</div>
+                            </div>
+                          </button>
+
+                          <button
+                            onClick={() => handleMenuItemClick(onSettingsClick || (() => {}))}
+                            className="w-full flex items-center space-x-3 px-6 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                          >
+                            <div className="w-10 h-10 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center">
+                              <Settings className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+                            </div>
+                            <div>
+                              <div className="font-medium text-gray-900 dark:text-white">Settings</div>
+                              <div className="text-sm text-gray-500 dark:text-gray-400">Preferences and security</div>
+                            </div>
+                          </button>
+
+                          <button
+                            onClick={() => handleMenuItemClick(() => {})}
+                            className="w-full flex items-center space-x-3 px-6 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                          >
+                            <div className="w-10 h-10 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center">
+                              <MessageSquare className="w-5 h-5 text-green-600 dark:text-green-400" />
+                            </div>
+                            <div>
+                              <div className="font-medium text-gray-900 dark:text-white">Messages</div>
+                              <div className="text-sm text-gray-500 dark:text-gray-400">Private conversations</div>
+                            </div>
+                          </button>
+
+                          <button
+                            onClick={() => handleMenuItemClick(() => {})}
+                            className="w-full flex items-center space-x-3 px-6 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                          >
+                            <div className="w-10 h-10 bg-yellow-100 dark:bg-yellow-900/30 rounded-full flex items-center justify-center">
+                              <Bell className="w-5 h-5 text-yellow-600 dark:text-yellow-400" />
+                            </div>
+                            <div>
+                              <div className="font-medium text-gray-900 dark:text-white">Notifications</div>
+                              <div className="text-sm text-gray-500 dark:text-gray-400">Alerts and updates</div>
+                            </div>
+                          </button>
+
+                          {/* Separator */}
+                          <div className="border-t border-gray-200 dark:border-gray-700 my-2"></div>
+
+                          <button
+                            onClick={handleLogoutClick}
+                            className="w-full flex items-center space-x-3 px-6 py-3 text-left hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                          >
+                            <div className="w-10 h-10 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center">
+                              <LogOut className="w-5 h-5 text-red-600 dark:text-red-400" />
+                            </div>
+                            <div>
+                              <div className="font-medium text-red-600 dark:text-red-400">Sign out</div>
+                              <div className="text-sm text-red-500 dark:text-red-500">Sign out of your account</div>
+                            </div>
+                          </button>
+                        </div>
                       </div>
                     )}
-                    <div className="text-left hidden sm:block">
-                      <div className="text-sm font-medium text-gray-900 dark:text-white">
-                        {profile.username}
-                      </div>
-                      <div className="text-xs text-gray-500 dark:text-gray-400">
-                        {profile.post_count} posts
-                      </div>
-                    </div>
-                  </button>
-                  
-                  <button
-                    onClick={handleLogoutClick}
-                    className="flex items-center space-x-2 px-3 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors border border-gray-200 dark:border-gray-700 hover:border-red-200 dark:hover:border-red-800"
-                    title="Logout"
-                  >
-                    <LogOut className="w-4 h-4" />
-                    <span className="hidden sm:inline">Logout</span>
-                  </button>
+                  </div>
                 </div>
               ) : (
                 <div className="flex items-center space-x-3">
