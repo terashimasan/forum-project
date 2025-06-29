@@ -42,59 +42,93 @@ export default function AgentRegistrationModal({ isOpen, onClose, onSubmitted }:
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Prevent double submission
+    if (loading) return;
+    
     setLoading(true);
     setError(null);
 
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Not authenticated');
+      if (!user) {
+        throw new Error('Not authenticated');
+      }
 
       // Check if user is verified
-      const { data: profile } = await supabase
+      const { data: profile, error: profileError } = await supabase
         .from('profiles')
         .select('is_verified')
         .eq('id', user.id)
         .single();
 
+      if (profileError) {
+        throw new Error('Failed to verify user profile');
+      }
+
       if (!profile?.is_verified) {
         throw new Error('Only verified users can register as agents');
       }
 
+      // Check if user already has an agent profile
+      const { data: existingAgent, error: checkError } = await supabase
+        .from('agents')
+        .select('id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (checkError) {
+        throw new Error('Failed to check existing agent profile');
+      }
+
+      if (existingAgent) {
+        throw new Error('You already have an agent profile');
+      }
+
       // Format pricing with currency
       const formatPrice = (price: string) => {
-        if (!price) return null;
+        if (!price || price.trim() === '') return null;
         const currency = currencies.find(c => c.code === formData.pricing_currency);
-        return `${currency?.symbol || '$'}${price}`;
+        return `${currency?.symbol || '$'}${price.trim()}`;
       };
 
-      const { error } = await supabase
+      // Prepare agent data
+      const agentData = {
+        user_id: user.id,
+        profile_picture: formData.profile_picture.trim() || null,
+        height: formData.height.trim() ? `${formData.height.trim()} cm` : null,
+        weight: formData.weight.trim() ? `${formData.weight.trim()} kg` : null,
+        current_location: formData.current_location.trim() || null,
+        services: formData.services.filter(service => service.trim() !== ''),
+        pricing_short_time: formatPrice(formData.pricing_short_time),
+        pricing_long_time: formatPrice(formData.pricing_long_time),
+        pricing_overnight: formatPrice(formData.pricing_overnight),
+        pricing_private: formatPrice(formData.pricing_private),
+        description: formData.description.trim() || null,
+        social_twitter: formData.social_twitter.trim() || null,
+        social_instagram: formData.social_instagram.trim() || null,
+        social_facebook: formData.social_facebook.trim() || null,
+        social_telegram: formData.social_telegram.trim() || null,
+        tags: formData.tags.filter(tag => tag.trim() !== '')
+      };
+
+      const { error: insertError } = await supabase
         .from('agents')
-        .insert({
-          user_id: user.id,
-          profile_picture: formData.profile_picture || null,
-          height: formData.height ? `${formData.height} cm` : null,
-          weight: formData.weight ? `${formData.weight} kg` : null,
-          current_location: formData.current_location || null,
-          services: formData.services,
-          pricing_short_time: formatPrice(formData.pricing_short_time),
-          pricing_long_time: formatPrice(formData.pricing_long_time),
-          pricing_overnight: formatPrice(formData.pricing_overnight),
-          pricing_private: formatPrice(formData.pricing_private),
-          description: formData.description || null,
-          social_twitter: formData.social_twitter || null,
-          social_instagram: formData.social_instagram || null,
-          social_facebook: formData.social_facebook || null,
-          social_telegram: formData.social_telegram || null,
-          tags: formData.tags
-        });
+        .insert(agentData);
 
-      if (error) throw error;
+      if (insertError) {
+        console.error('Agent insertion error:', insertError);
+        throw new Error(insertError.message || 'Failed to submit agent registration');
+      }
 
+      // Success - call callbacks and reset form
       onSubmitted();
-      onClose();
       resetForm();
+      onClose();
+
     } catch (error: any) {
-      setError(error.message);
+      console.error('Agent registration error:', error);
+      setError(error.message || 'An unexpected error occurred. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -121,13 +155,22 @@ export default function AgentRegistrationModal({ isOpen, onClose, onSubmitted }:
     });
     setNewService('');
     setNewTag('');
+    setError(null);
+  };
+
+  const handleClose = () => {
+    if (!loading) {
+      resetForm();
+      onClose();
+    }
   };
 
   const addService = () => {
-    if (newService.trim() && !formData.services.includes(newService.trim())) {
+    const trimmedService = newService.trim();
+    if (trimmedService && !formData.services.includes(trimmedService)) {
       setFormData({
         ...formData,
-        services: [...formData.services, newService.trim()]
+        services: [...formData.services, trimmedService]
       });
       setNewService('');
     }
@@ -141,10 +184,11 @@ export default function AgentRegistrationModal({ isOpen, onClose, onSubmitted }:
   };
 
   const addTag = () => {
-    if (newTag.trim() && !formData.tags.includes(newTag.trim())) {
+    const trimmedTag = newTag.trim();
+    if (trimmedTag && !formData.tags.includes(trimmedTag)) {
       setFormData({
         ...formData,
-        tags: [...formData.tags, newTag.trim()]
+        tags: [...formData.tags, trimmedTag]
       });
       setNewTag('');
     }
@@ -161,6 +205,13 @@ export default function AgentRegistrationModal({ isOpen, onClose, onSubmitted }:
     // Only allow numbers and decimal points
     const numericValue = value.replace(/[^0-9.]/g, '');
     setFormData({ ...formData, [field]: numericValue });
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent, action: () => void) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      action();
+    }
   };
 
   return (
@@ -180,8 +231,9 @@ export default function AgentRegistrationModal({ isOpen, onClose, onSubmitted }:
               </div>
             </div>
             <button
-              onClick={onClose}
-              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors"
+              onClick={handleClose}
+              disabled={loading}
+              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors disabled:opacity-50"
             >
               <X className="w-5 h-5 text-gray-500 dark:text-gray-400" />
             </button>
@@ -190,7 +242,10 @@ export default function AgentRegistrationModal({ isOpen, onClose, onSubmitted }:
           {error && (
             <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-start gap-3">
               <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
-              <p className="text-sm text-red-700 dark:text-red-400">{error}</p>
+              <div>
+                <p className="text-sm text-red-700 dark:text-red-400 font-medium">Registration Failed</p>
+                <p className="text-sm text-red-600 dark:text-red-500 mt-1">{error}</p>
+              </div>
             </div>
           )}
 
@@ -206,6 +261,7 @@ export default function AgentRegistrationModal({ isOpen, onClose, onSubmitted }:
                 onChange={(e) => setFormData({ ...formData, profile_picture: e.target.value })}
                 className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
                 placeholder="https://example.com/photo.jpg"
+                disabled={loading}
               />
             </div>
 
@@ -219,6 +275,7 @@ export default function AgentRegistrationModal({ isOpen, onClose, onSubmitted }:
                   onChange={(e) => handleNumberInput(e.target.value, 'height')}
                   className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
                   placeholder="170"
+                  disabled={loading}
                 />
               </div>
               <div>
@@ -229,6 +286,7 @@ export default function AgentRegistrationModal({ isOpen, onClose, onSubmitted }:
                   onChange={(e) => handleNumberInput(e.target.value, 'weight')}
                   className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
                   placeholder="55"
+                  disabled={loading}
                 />
               </div>
               <div>
@@ -242,6 +300,7 @@ export default function AgentRegistrationModal({ isOpen, onClose, onSubmitted }:
                   onChange={(e) => setFormData({ ...formData, current_location: e.target.value })}
                   className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
                   placeholder="Jakarta, Indonesia"
+                  disabled={loading}
                 />
               </div>
             </div>
@@ -254,14 +313,16 @@ export default function AgentRegistrationModal({ isOpen, onClose, onSubmitted }:
                   type="text"
                   value={newService}
                   onChange={(e) => setNewService(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addService())}
+                  onKeyPress={(e) => handleKeyPress(e, addService)}
                   className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
                   placeholder="Add a service"
+                  disabled={loading}
                 />
                 <button
                   type="button"
                   onClick={addService}
-                  className="px-4 py-2 bg-pink-600 text-white rounded-lg hover:bg-pink-700 transition-colors"
+                  disabled={loading || !newService.trim()}
+                  className="px-4 py-2 bg-pink-600 text-white rounded-lg hover:bg-pink-700 transition-colors disabled:opacity-50"
                 >
                   Add
                 </button>
@@ -276,7 +337,8 @@ export default function AgentRegistrationModal({ isOpen, onClose, onSubmitted }:
                     <button
                       type="button"
                       onClick={() => removeService(index)}
-                      className="text-pink-600 dark:text-pink-400 hover:text-pink-800 dark:hover:text-pink-200"
+                      disabled={loading}
+                      className="text-pink-600 dark:text-pink-400 hover:text-pink-800 dark:hover:text-pink-200 disabled:opacity-50"
                     >
                       <Trash2 className="w-3 h-3" />
                     </button>
@@ -292,6 +354,7 @@ export default function AgentRegistrationModal({ isOpen, onClose, onSubmitted }:
                 value={formData.pricing_currency}
                 onChange={(e) => setFormData({ ...formData, pricing_currency: e.target.value })}
                 className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                disabled={loading}
               >
                 {currencies.map((currency) => (
                   <option key={currency.code} value={currency.code}>
@@ -317,6 +380,7 @@ export default function AgentRegistrationModal({ isOpen, onClose, onSubmitted }:
                       onChange={(e) => handleNumberInput(e.target.value, 'pricing_short_time')}
                       className="w-full pl-8 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
                       placeholder="200"
+                      disabled={loading}
                     />
                   </div>
                 </div>
@@ -332,6 +396,7 @@ export default function AgentRegistrationModal({ isOpen, onClose, onSubmitted }:
                       onChange={(e) => handleNumberInput(e.target.value, 'pricing_long_time')}
                       className="w-full pl-8 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
                       placeholder="400"
+                      disabled={loading}
                     />
                   </div>
                 </div>
@@ -347,6 +412,7 @@ export default function AgentRegistrationModal({ isOpen, onClose, onSubmitted }:
                       onChange={(e) => handleNumberInput(e.target.value, 'pricing_overnight')}
                       className="w-full pl-8 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
                       placeholder="800"
+                      disabled={loading}
                     />
                   </div>
                 </div>
@@ -362,6 +428,7 @@ export default function AgentRegistrationModal({ isOpen, onClose, onSubmitted }:
                       onChange={(e) => handleNumberInput(e.target.value, 'pricing_private')}
                       className="w-full pl-8 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
                       placeholder="1000"
+                      disabled={loading}
                     />
                   </div>
                 </div>
@@ -377,6 +444,7 @@ export default function AgentRegistrationModal({ isOpen, onClose, onSubmitted }:
                 rows={4}
                 className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent resize-none bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
                 placeholder="Tell potential clients about yourself and your services..."
+                disabled={loading}
               />
             </div>
 
@@ -390,6 +458,7 @@ export default function AgentRegistrationModal({ isOpen, onClose, onSubmitted }:
                   onChange={(e) => setFormData({ ...formData, social_twitter: e.target.value })}
                   className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
                   placeholder="Twitter URL"
+                  disabled={loading}
                 />
                 <input
                   type="url"
@@ -397,6 +466,7 @@ export default function AgentRegistrationModal({ isOpen, onClose, onSubmitted }:
                   onChange={(e) => setFormData({ ...formData, social_instagram: e.target.value })}
                   className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
                   placeholder="Instagram URL"
+                  disabled={loading}
                 />
                 <input
                   type="url"
@@ -404,6 +474,7 @@ export default function AgentRegistrationModal({ isOpen, onClose, onSubmitted }:
                   onChange={(e) => setFormData({ ...formData, social_facebook: e.target.value })}
                   className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
                   placeholder="Facebook URL"
+                  disabled={loading}
                 />
                 <input
                   type="url"
@@ -411,6 +482,7 @@ export default function AgentRegistrationModal({ isOpen, onClose, onSubmitted }:
                   onChange={(e) => setFormData({ ...formData, social_telegram: e.target.value })}
                   className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
                   placeholder="Telegram URL"
+                  disabled={loading}
                 />
               </div>
             </div>
@@ -423,14 +495,16 @@ export default function AgentRegistrationModal({ isOpen, onClose, onSubmitted }:
                   type="text"
                   value={newTag}
                   onChange={(e) => setNewTag(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addTag())}
+                  onKeyPress={(e) => handleKeyPress(e, addTag)}
                   className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
                   placeholder="Add a tag"
+                  disabled={loading}
                 />
                 <button
                   type="button"
                   onClick={addTag}
-                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                  disabled={loading || !newTag.trim()}
+                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50"
                 >
                   Add
                 </button>
@@ -445,7 +519,8 @@ export default function AgentRegistrationModal({ isOpen, onClose, onSubmitted }:
                     <button
                       type="button"
                       onClick={() => removeTag(index)}
-                      className="text-purple-600 dark:text-purple-400 hover:text-purple-800 dark:hover:text-purple-200"
+                      disabled={loading}
+                      className="text-purple-600 dark:text-purple-400 hover:text-purple-800 dark:hover:text-purple-200 disabled:opacity-50"
                     >
                       <Trash2 className="w-3 h-3" />
                     </button>
@@ -469,8 +544,9 @@ export default function AgentRegistrationModal({ isOpen, onClose, onSubmitted }:
             <div className="flex justify-end space-x-3">
               <button
                 type="button"
-                onClick={onClose}
-                className="px-6 py-3 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                onClick={handleClose}
+                disabled={loading}
+                className="px-6 py-3 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
               >
                 Cancel
               </button>
